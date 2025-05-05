@@ -28,7 +28,7 @@ app.message(async ({ message, say }) => {
 
     try {
       await say({
-        text: `メッセージとてもありがとうございます。${replyText}`,
+        text: `[rev1]メッセージありがとうございます。${replyText}`,
         thread_ts: message.ts,
       });
     } catch (e) {

@@ -1,4 +1,4 @@
-name: Build and push Docker image to ACR
+name: Build and Push Docker Image with Version
 
 on:
   push:
@@ -9,8 +9,12 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
 
+    env:
+      ACR_NAME: slackbotaca
+      IMAGE_NAME: slackbot-sample
+
     steps:
-      - name: Check out the repo
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Log in to Azure
@@ -18,17 +22,31 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Log in to ACR
+      - name: Get latest version from ACR
+        id: get_version
         run: |
-          az acr login --name slackbotaca
+          # 最新のタグ一覧を取得（数値タグのみ）
+          TAGS=$(az acr repository show-tags \
+            --name $ACR_NAME \
+            --repository $IMAGE_NAME \
+            --output tsv | grep -E '^[0-9]+$' || echo "")
 
-      - name: Build and push Docker image
-        uses: azure/docker-login@v1
-        with:
-          login-server: slackbotaca.azurecr.io
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
+          if [ -z "$TAGS" ]; then
+            NEXT_VERSION=1
+          else
+            MAX_VERSION=$(echo "$TAGS" | sort -n | tail -n 1)
+            NEXT_VERSION=$((MAX_VERSION + 1))
+          fi
 
-      - run: |
-          docker build -t slackbotaca.azurecr.io/slackbot-sample:latest .
-          docker push slackbotaca.azurecr.io/slackbot-sample:latest
+          echo "next_version=$NEXT_VERSION" >> $GITHUB_OUTPUT
+          echo "✔ Next version: $NEXT_VERSION"
+
+      - name: Docker build and push
+        run: |
+          VERSION=${{ steps.get_version.outputs.next_version }}
+          IMAGE_URI=$ACR_NAME.azurecr.io/$IMAGE_NAME:$VERSION
+
+          echo "🔧 Building image: $IMAGE_URI"
+          docker build -t $IMAGE_URI .
+          echo "📦 Pushing image..."
+          docker push $IMAGE_URI
