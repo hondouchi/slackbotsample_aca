@@ -1,0 +1,10 @@
+{
+  "name": "slackbot-aca",
+  "version": "1.0.0",
+  "main": "app.js",
+  "type": "commonjs",
+  "dependencies": {
+    "@slack/bolt": "^3.22.0",
+    "dotenv": "^16.5.0"
+  }
+}

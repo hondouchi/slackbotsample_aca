@@ -1,0 +1,14 @@
+# Node.js 関連
+node_modules/          # ローカル依存ファイル（非常に重く不要）
+npm-debug.log*         # エラーログ
+
+# 環境変数
+.env                   # Slackトークンなどの機密情報を含む
+
+# エディタ・開発環境
+.vscode/               # VSCodeのローカル設定（個人差が出る）
+.DS_Store              # macOSが自動生成するファイル（Mac使用時）
+
+# Docker関係（不要な場合）
+*.log                  # ログファイル全般
+docker-compose.override.yml
