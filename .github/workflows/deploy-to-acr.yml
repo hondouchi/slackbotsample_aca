@@ -25,7 +25,7 @@ jobs:
       - name: Get latest version from ACR
         id: get_version
         run: |
-          # 最新のタグ一覧を取得（数値タグのみ）
+          echo "🔍 Checking existing image tags in ACR..."
           TAGS=$(az acr repository show-tags \
             --name $ACR_NAME \
             --repository $IMAGE_NAME \
@@ -39,14 +39,21 @@ jobs:
           fi
 
           echo "next_version=$NEXT_VERSION" >> $GITHUB_OUTPUT
-          echo "✔ Next version: $NEXT_VERSION"
+          echo "✔ Next version will be: $NEXT_VERSION"
 
-      - name: Docker build and push
+      - name: Docker login to ACR
+        run: |
+          echo "${{ secrets.ACR_PASSWORD }}" | docker login $ACR_NAME.azurecr.io \
+            --username ${{ secrets.ACR_USERNAME }} \
+            --password-stdin
+
+      - name: Build and push Docker image
         run: |
           VERSION=${{ steps.get_version.outputs.next_version }}
           IMAGE_URI=$ACR_NAME.azurecr.io/$IMAGE_NAME:$VERSION
 
-          echo "🔧 Building image: $IMAGE_URI"
+          echo "🔧 Building Docker image: $IMAGE_URI"
           docker build -t $IMAGE_URI .
-          echo "📦 Pushing image..."
+
+          echo "📦 Pushing image to ACR..."
           docker push $IMAGE_URI
