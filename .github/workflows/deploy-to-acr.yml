@@ -1,4 +1,4 @@
-name: Build and Push Docker Image with Version
+name: Build, Push to ACR and Deploy to ACA
 
 on:
   push:
@@ -6,12 +6,14 @@ on:
       - main
 
 jobs:
-  build-and-push:
+  build-push-deploy:
     runs-on: ubuntu-latest
 
     env:
       ACR_NAME: slackbotaca
       IMAGE_NAME: slackbot-sample
+      CONTAINER_APP_NAME: slackbot-acasample
+      RESOURCE_GROUP: hondouchi-slackbot-aca
 
     steps:
       - name: Checkout repository
@@ -22,10 +24,10 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Get latest version from ACR
+      - name: Get latest version tag from ACR
         id: get_version
         run: |
-          echo "🔍 Checking existing image tags in ACR..."
+          echo "🔍 Getting current version tags..."
           TAGS=$(az acr repository show-tags \
             --name $ACR_NAME \
             --repository $IMAGE_NAME \
@@ -39,7 +41,7 @@ jobs:
           fi
 
           echo "next_version=$NEXT_VERSION" >> $GITHUB_OUTPUT
-          echo "✔ Next version will be: $NEXT_VERSION"
+          echo "✔ Version to use: $NEXT_VERSION"
 
       - name: Docker login to ACR
         run: |
@@ -57,3 +59,14 @@ jobs:
 
           echo "📦 Pushing image to ACR..."
           docker push $IMAGE_URI
+
+      - name: Deploy updated image to Azure Container Apps
+        run: |
+          VERSION=${{ steps.get_version.outputs.next_version }}
+          IMAGE_URI=$ACR_NAME.azurecr.io/$IMAGE_NAME:$VERSION
+
+          echo "🚀 Updating ACA to use: $IMAGE_URI"
+          az containerapp update \
+            --name $CONTAINER_APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --image $IMAGE_URI
