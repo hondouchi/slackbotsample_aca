@@ -140,21 +140,21 @@ graph TB
 # VNET の作成
 az network vnet create \
   --resource-group rg-slackbot-aca \
-  --name slackbot-vnet \
+  --name slackbot-aca-vnet \
   --address-prefix 10.0.0.0/16 \
   --location japaneast
 
 # Container Apps 用サブネットの作成 (最低 /23 が必要)
 az network vnet subnet create \
   --resource-group rg-slackbot-aca \
-  --vnet-name slackbot-vnet \
+  --vnet-name slackbot-aca-vnet \
   --name aca-subnet \
   --address-prefixes 10.0.0.0/23
 
 # データベース用サブネットの作成 (将来の拡張用)
 az network vnet subnet create \
   --resource-group rg-slackbot-aca \
-  --vnet-name slackbot-vnet \
+  --vnet-name slackbot-aca-vnet \
   --name database-subnet \
   --address-prefixes 10.0.2.0/24 \
   --disable-private-endpoint-network-policies false
@@ -174,7 +174,7 @@ az network vnet subnet create \
 3. **基本** タブ:
    - **サブスクリプション**: 使用するサブスクリプション
    - **リソース グループ**: `rg-slackbot-aca`
-   - **名前**: `slackbot-vnet`
+   - **名前**: `slackbot-aca-vnet`
    - **リージョン**: `Japan East`
 4. **IP アドレス** タブ:
    - **IPv4 アドレス空間**: `10.0.0.0/16`
@@ -203,7 +203,7 @@ Container Apps の実行環境を VNET 内に作成します。
 # サブネット ID の取得
 SUBNET_ID=$(az network vnet subnet show \
   --resource-group rg-slackbot-aca \
-  --vnet-name slackbot-vnet \
+  --vnet-name slackbot-aca-vnet \
   --name aca-subnet \
   --query id \
   --output tsv)
@@ -241,7 +241,7 @@ az containerapp env create \
    - **リージョン**: `Japan East`
    - **ゾーン冗長**: `無効` (開発環境の場合)
 4. **ネットワーク** タブ:
-   - **仮想ネットワーク**: `slackbot-vnet`
+   - **仮想ネットワーク**: `slackbot-aca-vnet`
    - **インフラストラクチャ サブネット**: `aca-subnet`
    - **仮想ネットワーク内部専用**: `いいえ` (Slack からの接続を許可)
 5. **監視** タブ:
@@ -588,7 +588,7 @@ az containerapp update \
 az network private-endpoint create \
   --resource-group rg-slackbot-aca \
   --name postgres-private-endpoint \
-  --vnet-name slackbot-vnet \
+  --vnet-name slackbot-aca-vnet \
   --subnet database-subnet \
   --private-connection-resource-id <POSTGRES_RESOURCE_ID> \
   --group-id postgresqlServer \
@@ -604,7 +604,7 @@ az network private-dns link vnet create \
   --resource-group rg-slackbot-aca \
   --zone-name privatelink.postgres.database.azure.com \
   --name postgres-dns-link \
-  --virtual-network slackbot-vnet \
+  --virtual-network slackbot-aca-vnet \
   --registration-enabled false
 
 # DNS レコードの自動作成
@@ -628,7 +628,7 @@ az network private-endpoint dns-zone-group create \
 5. **リソース** タブ:
    - **ターゲット サブリソース**: `postgresqlServer`
 6. **仮想ネットワーク** タブ:
-   - **仮想ネットワーク**: `slackbot-vnet`
+   - **仮想ネットワーク**: `slackbot-aca-vnet`
    - **サブネット**: `database-subnet`
 7. **DNS** タブ:
    - **プライベート DNS ゾーンと統合する**: `はい`
@@ -660,7 +660,7 @@ az network nsg rule create \
 # NSG をサブネットに適用
 az network vnet subnet update \
   --resource-group rg-slackbot-aca \
-  --vnet-name slackbot-vnet \
+  --vnet-name slackbot-aca-vnet \
   --name aca-subnet \
   --network-security-group aca-nsg
 ```
