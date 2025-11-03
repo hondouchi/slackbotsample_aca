@@ -27,13 +27,13 @@
 
 ```bash
 az group create \
-  --name slackbot-aca-rg \
+  --name rg-slackbot-aca \
   --location japaneast
 ```
 
 **パラメータ**:
 
-- `--name`: リソースグループ名 (任意、例: `slackbot-aca-rg`)
+- `--name`: リソースグループ名 (任意、例: `rg-slackbot-aca`)
 - `--location`: リージョン (`japaneast` を推奨)
 
 ### Azure Portal を使用する場合
@@ -43,7 +43,7 @@ az group create \
 3. **+ 作成** をクリック
 4. 以下を入力:
    - **サブスクリプション**: 使用するサブスクリプションを選択
-   - **リソース グループ**: `slackbot-aca-rg` (任意の名前)
+   - **リソース グループ**: `rg-slackbot-aca` (任意の名前)
    - **リージョン**: `Japan East`
 5. **確認および作成** → **作成**
 
@@ -59,7 +59,7 @@ Docker イメージを保存するためのコンテナレジストリを作成�
 
 ```bash
 az acr create \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --name <YOUR_ACR_NAME> \
   --sku Standard \
   --admin-enabled true
@@ -91,7 +91,7 @@ az acr credential show \
 2. **+ 作成** をクリック
 3. **基本** タブで以下を設定:
    - **サブスクリプション**: 使用するサブスクリプション
-   - **リソース グループ**: `slackbot-aca-rg`
+   - **リソース グループ**: `rg-slackbot-aca`
    - **レジストリ名**: グローバルで一意な名前 (例: `slackbotaca123`)
    - **場所**: `Japan East`
    - **SKU**: `Standard`
@@ -139,21 +139,21 @@ graph TB
 ```bash
 # VNET の作成
 az network vnet create \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --name slackbot-vnet \
   --address-prefix 10.0.0.0/16 \
   --location japaneast
 
 # Container Apps 用サブネットの作成 (最低 /23 が必要)
 az network vnet subnet create \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --vnet-name slackbot-vnet \
   --name aca-subnet \
   --address-prefixes 10.0.0.0/23
 
 # データベース用サブネットの作成 (将来の拡張用)
 az network vnet subnet create \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --vnet-name slackbot-vnet \
   --name database-subnet \
   --address-prefixes 10.0.2.0/24 \
@@ -161,6 +161,7 @@ az network vnet subnet create \
 ```
 
 **パラメータ**:
+
 - `--address-prefix`: VNET のアドレス空間 (`10.0.0.0/16`)
 - `--address-prefixes`: サブネットのアドレス範囲
   - Container Apps 用: `/23` 以上が必要 (512 アドレス)
@@ -172,7 +173,7 @@ az network vnet subnet create \
 2. **+ 作成** をクリック
 3. **基本** タブ:
    - **サブスクリプション**: 使用するサブスクリプション
-   - **リソース グループ**: `slackbot-aca-rg`
+   - **リソース グループ**: `rg-slackbot-aca`
    - **名前**: `slackbot-vnet`
    - **リージョン**: `Japan East`
 4. **IP アドレス** タブ:
@@ -185,7 +186,8 @@ az network vnet subnet create \
      - **サブネット アドレス範囲**: `10.0.2.0/24`
 5. **確認および作成** → **作成**
 
-> **📝 補足**: 
+> **📝 補足**:
+>
 > - Container Apps Environment には最低でも `/23` (512 アドレス) のサブネットが必要です
 > - データベース用サブネットは将来の拡張用です (プライベートエンドポイント接続に使用)
 
@@ -200,7 +202,7 @@ Container Apps の実行環境を VNET 内に作成します。
 ```bash
 # サブネット ID の取得
 SUBNET_ID=$(az network vnet subnet show \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --vnet-name slackbot-vnet \
   --name aca-subnet \
   --query id \
@@ -209,20 +211,22 @@ SUBNET_ID=$(az network vnet subnet show \
 # VNET 統合された Environment の作成
 az containerapp env create \
   --name slackbot-aca-env \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --location japaneast \
   --infrastructure-subnet-resource-id $SUBNET_ID \
   --internal-only false
 ```
 
 **パラメータ**:
+
 - `--name`: 環境名 (任意、例: `slackbot-aca-env`)
 - `--resource-group`: リソースグループ名
 - `--location`: リージョン
 - `--infrastructure-subnet-resource-id`: Container Apps が使用するサブネットの ID
 - `--internal-only`: 内部専用環境にするか (`false` = Slack からの接続を許可)
 
-> **📝 Note**: 
+> **📝 Note**:
+>
 > - Log Analytics ワークスペースが自動的に作成され、ログとメトリクスが収集されます
 > - Socket Mode では外部からの WebSocket 接続が必要なため、`--internal-only` は `false` に設定します
 
@@ -232,7 +236,7 @@ az containerapp env create \
 2. **+ 作成** をクリック
 3. **基本** タブで以下を設定:
    - **サブスクリプション**: 使用するサブスクリプション
-   - **リソース グループ**: `slackbot-aca-rg`
+   - **リソース グループ**: `rg-slackbot-aca`
    - **コンテナー アプリ環境名**: `slackbot-aca-env`
    - **リージョン**: `Japan East`
    - **ゾーン冗長**: `無効` (開発環境の場合)
@@ -257,7 +261,7 @@ az containerapp env create \
 ```bash
 az containerapp create \
   --name slackbot-app \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --environment slackbot-aca-env \
   --image <YOUR_ACR_NAME>.azurecr.io/slackbot-sample:1 \
   --target-port 3000 \
@@ -284,7 +288,7 @@ az containerapp create \
 | パラメータ                          | 説明                                            | 例                                             |
 | ----------------------------------- | ----------------------------------------------- | ---------------------------------------------- |
 | `--name`                            | Container Apps の名前                           | `slackbot-app`                                 |
-| `--resource-group`                  | リソースグループ名                              | `slackbot-aca-rg`                              |
+| `--resource-group`                  | リソースグループ名                              | `rg-slackbot-aca`                              |
 | `--environment`                     | Container Apps Environment の名前               | `slackbot-aca-env`                             |
 | `--image`                           | Docker イメージ                                 | `<YOUR_ACR_NAME>.azurecr.io/slackbot-sample:1` |
 | `--target-port`                     | コンテナポート (Socket Mode では不使用だが必須) | `3000`                                         |
@@ -315,7 +319,7 @@ az containerapp create \
 #### 基本タブ
 
 - **サブスクリプション**: 使用するサブスクリプション
-- **リソース グループ**: `slackbot-aca-rg`
+- **リソース グループ**: `rg-slackbot-aca`
 - **コンテナー アプリ名**: `slackbot-app`
 - **リージョン**: `Japan East`
 - **コンテナー アプリ環境**: `slackbot-aca-env` (先ほど作成したもの)
@@ -395,7 +399,7 @@ az containerapp create \
 # シークレットの更新
 az containerapp secret set \
   --name slackbot-app \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --secrets \
     slack-bot-token=<NEW_SLACK_BOT_TOKEN> \
     slack-app-token=<NEW_SLACK_APP_TOKEN> \
@@ -404,7 +408,7 @@ az containerapp secret set \
 # Container Apps の再起動
 az containerapp revision restart \
   --name slackbot-app \
-  --resource-group slackbot-aca-rg
+  --resource-group rg-slackbot-aca
 ```
 
 ### Azure Portal を使用する場合
@@ -429,7 +433,7 @@ az containerapp revision restart \
 ```bash
 az containerapp show \
   --name slackbot-app \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --query properties.provisioningState
 ```
 
@@ -440,7 +444,7 @@ az containerapp show \
 ```bash
 az containerapp logs show \
   --name slackbot-app \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --follow
 ```
 
@@ -491,7 +495,7 @@ ContainerAppConsoleLogs_CL
 
 | リソースタイプ             | 名前 (例)                    | 説明                              |
 | -------------------------- | ---------------------------- | --------------------------------- |
-| Resource Group             | `slackbot-aca-rg`            | すべてのリソースを格納            |
+| Resource Group             | `rg-slackbot-aca`            | すべてのリソースを格納            |
 | Container Registry         | `<YOUR_ACR_NAME>.azurecr.io` | Docker イメージを保存             |
 | Container Apps Environment | `slackbot-aca-env`           | Container Apps の実行環境         |
 | Container Apps             | `slackbot-app`               | Slack Bot アプリケーション        |
@@ -511,7 +515,7 @@ ContainerAppConsoleLogs_CL
 
 1. Azure Portal で **コスト管理 + 課金** を検索
 2. **コスト分析** で使用状況を確認
-3. リソース グループ `slackbot-aca-rg` でフィルタリング
+3. リソース グループ `rg-slackbot-aca` でフィルタリング
 
 ### コスト削減のヒント
 
@@ -522,7 +526,7 @@ ContainerAppConsoleLogs_CL
 ```bash
 az containerapp update \
   --name slackbot-app \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --min-replicas 0 \
   --max-replicas 1
 ```
@@ -554,7 +558,7 @@ az containerapp update \
 
 3. **リビジョンの確認**
    - Azure Portal: **リビジョン管理** で失敗したリビジョンのログを確認
-   - Azure CLI: `az containerapp revision list --name slackbot-app --resource-group slackbot-aca-rg`
+   - Azure CLI: `az containerapp revision list --name slackbot-app --resource-group rg-slackbot-aca`
 
 ### ログが表示されない
 
@@ -571,7 +575,7 @@ az containerapp update \
 
 ## 8. 追加のセキュリティ設定 (オプション)
 
-基本的なVNET統合に加え、さらなるセキュリティ強化のための設定です。
+基本的な VNET 統合に加え、さらなるセキュリティ強化のための設定です。
 
 ### プライベートエンドポイントの設定
 
@@ -582,7 +586,7 @@ az containerapp update \
 ```bash
 # プライベートエンドポイントの作成
 az network private-endpoint create \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --name postgres-private-endpoint \
   --vnet-name slackbot-vnet \
   --subnet database-subnet \
@@ -592,12 +596,12 @@ az network private-endpoint create \
 
 # プライベート DNS ゾーンの作成
 az network private-dns zone create \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --name privatelink.postgres.database.azure.com
 
 # VNET リンクの作成
 az network private-dns link vnet create \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --zone-name privatelink.postgres.database.azure.com \
   --name postgres-dns-link \
   --virtual-network slackbot-vnet \
@@ -605,7 +609,7 @@ az network private-dns link vnet create \
 
 # DNS レコードの自動作成
 az network private-endpoint dns-zone-group create \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --endpoint-name postgres-private-endpoint \
   --name postgres-dns-zone-group \
   --private-dns-zone privatelink.postgres.database.azure.com \
@@ -618,7 +622,7 @@ az network private-endpoint dns-zone-group create \
 2. **ネットワーク** → **プライベート エンドポイント接続**
 3. **+ プライベート エンドポイント** をクリック
 4. 以下を設定:
-   - **リソース グループ**: `slackbot-aca-rg`
+   - **リソース グループ**: `rg-slackbot-aca`
    - **名前**: `postgres-private-endpoint`
    - **リージョン**: `Japan East`
 5. **リソース** タブ:
@@ -637,12 +641,12 @@ az network private-endpoint dns-zone-group create \
 ```bash
 # NSG の作成
 az network nsg create \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --name aca-nsg
 
 # HTTPS アウトバウンドを許可
 az network nsg rule create \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --nsg-name aca-nsg \
   --name allow-https-outbound \
   --priority 100 \
@@ -655,7 +659,7 @@ az network nsg rule create \
 
 # NSG をサブネットに適用
 az network vnet subnet update \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --vnet-name slackbot-vnet \
   --name aca-subnet \
   --network-security-group aca-nsg
@@ -669,13 +673,13 @@ az network vnet subnet update \
 # システム割り当てマネージド ID の有効化
 az containerapp identity assign \
   --name slackbot-app \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --system-assigned
 
 # マネージド ID に ACR へのアクセス権を付与
 PRINCIPAL_ID=$(az containerapp show \
   --name slackbot-app \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --query identity.principalId \
   --output tsv)
 
@@ -696,7 +700,7 @@ az role assignment create \
 # Key Vault の作成
 az keyvault create \
   --name slackbot-kv \
-  --resource-group slackbot-aca-rg \
+  --resource-group rg-slackbot-aca \
   --location japaneast \
   --enable-rbac-authorization false
 
