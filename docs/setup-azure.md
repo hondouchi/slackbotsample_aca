@@ -1,6 +1,8 @@
-# Azure リソースの作成
+# Azure リソースの作成 (Azure CLI 版)
 
-このドキュメントでは、Slack Bot を Azure Container Apps (ACA) で動作させるために必要な Azure リソースの作成手順を説明します。
+このドキュメントでは、Azure CLI を使用して Slack Bot を Azure Container Apps (ACA) で動作させるために必要な Azure リソースを作成する手順を説明します。
+
+> **📝 Note**: Azure Portal を使用した手順は [Azure リソースの作成 (Portal 版)](setup-azure-portal.md) を参照してください。
 
 ## 前提条件
 
@@ -16,13 +18,13 @@
 
 ```bash
 az group create \
-  --name hondouchi-slackbot-aca \
+  --name slackbot-aca-rg \
   --location japaneast
 ```
 
 ### パラメータ
 
-- `--name`: リソースグループ名 (任意)
+- `--name`: リソースグループ名 (任意、例: `slackbot-aca-rg`)
 - `--location`: リージョン (`japaneast` を推奨)
 
 ---
@@ -31,38 +33,32 @@ az group create \
 
 Docker イメージを保存するためのコンテナレジストリを作成します。
 
-### Azure Portal での作成
-
-1. Azure Portal で **Container Registries** を検索
-2. **作成** をクリック
-3. 以下を設定:
-   - **サブスクリプション**: 使用するサブスクリプション
-   - **リソースグループ**: `hondouchi-slackbot-aca`
-   - **レジストリ名**: `slackbotaca` (グローバルで一意な名前)
-   - **場所**: `Japan East`
-   - **SKU**: `Standard`
-4. **確認および作成** → **作成**
-
-5. 作成後、**アクセスキー** から管理者ユーザーを有効化:
-   - **管理者ユーザー** にチェック
-   - **ユーザー名** と **パスワード** を保存 (GitHub Actions で使用)
-
-### Azure CLI での作成
-
 ```bash
 # ACR の作成
 az acr create \
-  --resource-group hondouchi-slackbot-aca \
-  --name slackbotaca \
+  --resource-group slackbot-aca-rg \
+  --name <YOUR_ACR_NAME> \
   --sku Standard \
   --admin-enabled true
+```
 
-# 管理者認証情報の取得
+### パラメータ
+
+- `--resource-group`: リソースグループ名
+- `--name`: ACR 名 (グローバルで一意、例: `slackbotaca123`)
+- `--sku`: SKU (`Basic`, `Standard`, `Premium`)
+- `--admin-enabled`: 管理者ユーザーを有効化
+
+### 管理者認証情報の取得
+
+```bash
 az acr credential show \
-  --name slackbotaca \
+  --name <YOUR_ACR_NAME> \
   --query "{username:username, password:passwords[0].value}" \
   --output table
 ```
+
+> **⚠️ 重要**: ユーザー名とパスワードを保存してください (GitHub Actions で使用)
 
 ---
 
@@ -73,13 +69,13 @@ Container Apps の実行環境を作成します。
 ```bash
 az containerapp env create \
   --name slackbot-aca-env \
-  --resource-group hondouchi-slackbot-aca \
+  --resource-group slackbot-aca-rg \
   --location japaneast
 ```
 
 ### パラメータ
 
-- `--name`: 環境名 (任意)
+- `--name`: 環境名 (任意、例: `slackbot-aca-env`)
 - `--resource-group`: リソースグループ名
 - `--location`: リージョン
 
@@ -93,13 +89,13 @@ az containerapp env create \
 
 ```bash
 az containerapp create \
-  --name slackbot-acasample \
-  --resource-group hondouchi-slackbot-aca \
+  --name slackbot-app \
+  --resource-group slackbot-aca-rg \
   --environment slackbot-aca-env \
-  --image slackbotaca.azurecr.io/slackbot-sample:1 \
+  --image <YOUR_ACR_NAME>.azurecr.io/slackbot-sample:1 \
   --target-port 3000 \
   --ingress internal \
-  --registry-server slackbotaca.azurecr.io \
+  --registry-server <YOUR_ACR_NAME>.azurecr.io \
   --registry-username <ACR_USERNAME> \
   --registry-password <ACR_PASSWORD> \
   --secrets \
@@ -133,13 +129,31 @@ az containerapp create \
 | `--min-replicas` / `--max-replicas` | レプリカ数 (1 固定を推奨)                                  |
 | `--cpu` / `--memory`                | リソース割り当て                                           |
 
+### パラメータの説明
+
+| パラメータ                          | 説明                                            | 例                                             |
+| ----------------------------------- | ----------------------------------------------- | ---------------------------------------------- |
+| `--name`                            | Container Apps の名前                           | `slackbot-app`                                 |
+| `--resource-group`                  | リソースグループ名                              | `slackbot-aca-rg`                              |
+| `--environment`                     | Container Apps Environment の名前               | `slackbot-aca-env`                             |
+| `--image`                           | Docker イメージ                                 | `<YOUR_ACR_NAME>.azurecr.io/slackbot-sample:1` |
+| `--target-port`                     | コンテナポート (Socket Mode では不使用だが必須) | `3000`                                         |
+| `--ingress`                         | イングレス設定 (Socket Mode なので internal)    | `internal`                                     |
+| `--registry-server`                 | ACR サーバー名                                  | `<YOUR_ACR_NAME>.azurecr.io`                   |
+| `--registry-username`               | ACR の管理者ユーザー名                          | ステップ 2 で取得                              |
+| `--registry-password`               | ACR の管理者パスワード                          | ステップ 2 で取得                              |
+| `--secrets`                         | 機密情報をシークレットとして登録                | 以下参照                                       |
+| `--env-vars`                        | 環境変数の設定 (シークレット参照)               | 以下参照                                       |
+| `--min-replicas` / `--max-replicas` | レプリカ数 (1 固定を推奨)                       | `1`                                            |
+| `--cpu` / `--memory`                | リソース割り当て                                | `0.5` / `1.0Gi`                                |
+
 ### 環境変数の設定
 
 以下の環境変数を設定してください ([Slack アプリの作成](setup-slack.md)で取得):
 
 - `<SLACK_BOT_TOKEN>`: Bot User OAuth Token (`xoxb-...`)
 - `<SLACK_APP_TOKEN>`: App Token (`xapp-1-...`)
-- `<BOT_USER_ID>`: Bot User ID (`U08QCB7J1PH`)
+- `<BOT_USER_ID>`: Bot User ID (例: `U08QCB7J1PH`)
 
 > **⚠️ 注意**: 初回は Docker イメージが ACR に存在しないため、エラーになる可能性があります。GitHub Actions で初回デプロイ後に自動更新されます。
 
@@ -152,8 +166,8 @@ az containerapp create \
 ```bash
 # シークレットの更新
 az containerapp secret set \
-  --name slackbot-acasample \
-  --resource-group hondouchi-slackbot-aca \
+  --name slackbot-app \
+  --resource-group slackbot-aca-rg \
   --secrets \
     slack-bot-token=<NEW_SLACK_BOT_TOKEN> \
     slack-app-token=<NEW_SLACK_APP_TOKEN> \
@@ -161,26 +175,31 @@ az containerapp secret set \
 
 # Container Apps の再起動
 az containerapp revision restart \
-  --name slackbot-acasample \
-  --resource-group hondouchi-slackbot-aca
+  --name slackbot-app \
+  --resource-group slackbot-aca-rg
 ```
 
 ---
 
 ## 6. デプロイの確認
 
-### Azure Portal での確認
+### ステータスの確認
 
-1. Azure Portal で **Container Apps** を検索
-2. `slackbot-acasample` を選択
-3. **概要** でステータスを確認 (`Running` になっていることを確認)
+```bash
+az containerapp show \
+  --name slackbot-app \
+  --resource-group slackbot-aca-rg \
+  --query properties.provisioningState
+```
+
+`"Succeeded"` が表示されれば成功です。
 
 ### ログの確認
 
 ```bash
 az containerapp logs show \
-  --name slackbot-acasample \
-  --resource-group hondouchi-slackbot-aca \
+  --name slackbot-app \
+  --resource-group slackbot-aca-rg \
   --follow
 ```
 
@@ -197,13 +216,13 @@ az containerapp logs show \
 
 作成した Azure リソース:
 
-| リソースタイプ             | 名前                                     | 説明                              |
-| -------------------------- | ---------------------------------------- | --------------------------------- |
-| Resource Group             | `hondouchi-slackbot-aca`                 | すべてのリソースを格納            |
-| Container Registry         | `slackbotaca.azurecr.io`                 | Docker イメージを保存             |
-| Container Apps Environment | `slackbot-aca-env`                       | Container Apps の実行環境         |
-| Container Apps             | `slackbot-acasample`                     | Slack Bot アプリケーション        |
-| Log Analytics Workspace    | `loganalyticsworkspace-slackbot-aca-env` | ログとメトリクスの保存 (自動作成) |
+| リソースタイプ             | 名前 (例)                    | 説明                              |
+| -------------------------- | ---------------------------- | --------------------------------- |
+| Resource Group             | `slackbot-aca-rg`            | すべてのリソースを格納            |
+| Container Registry         | `<YOUR_ACR_NAME>.azurecr.io` | Docker イメージを保存             |
+| Container Apps Environment | `slackbot-aca-env`           | Container Apps の実行環境         |
+| Container Apps             | `slackbot-app`               | Slack Bot アプリケーション        |
+| Log Analytics Workspace    | `(自動生成)`                 | ログとメトリクスの保存 (自動作成) |
 
 ---
 
@@ -221,8 +240,8 @@ az containerapp logs show \
 
 ```bash
 az containerapp update \
-  --name slackbot-acasample \
-  --resource-group hondouchi-slackbot-aca \
+  --name slackbot-app \
+  --resource-group slackbot-aca-rg \
   --min-replicas 0 \
   --max-replicas 1
 ```
@@ -233,5 +252,6 @@ az containerapp update \
 
 ## 次のステップ
 
+- [Azure リソースの作成 (Portal 版)](setup-azure-portal.md) - Azure Portal を使用した作成手順
 - [GitHub の設定](setup-github.md) - CI/CD パイプラインの構築
 - [デプロイフロー](deployment.md) - 自動デプロイの仕組み

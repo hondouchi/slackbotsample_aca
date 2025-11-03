@@ -135,7 +135,8 @@ graph TB
 ### セットアップガイド
 
 - **[Slack アプリの作成](docs/setup-slack.md)** - Slack Bot の作成と設定手順
-- **[Azure リソースの作成](docs/setup-azure.md)** - ACR、ACA などの Azure リソース作成手順
+- **[Azure リソースの作成 (CLI 版)](docs/setup-azure.md)** - Azure CLI を使用したリソース作成手順
+- **[Azure リソースの作成 (Portal 版)](docs/setup-azure-portal.md)** - Azure Portal を使用したリソース作成手順
 - **[GitHub の設定](docs/setup-github.md)** - CI/CD パイプラインの設定手順
 
 ### 開発ガイド
