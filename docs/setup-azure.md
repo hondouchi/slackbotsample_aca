@@ -204,7 +204,7 @@ az network vnet subnet create \
 
 > **⚠️ 重要**: サブネットの委任について
 >
-> `--allow-preview true`でcontainerapp拡張機能をインストールした場合、サブネットを `Microsoft.App/environments` に**委任する必要があります**。
+> `--allow-preview true`で containerapp 拡張機能をインストールした場合、サブネットを `Microsoft.App/environments` に**委任する必要があります**。
 >
 > - サブネット作成時に `--delegations Microsoft.App/environments` を指定
 > - または、既存のサブネットに委任を追加：
