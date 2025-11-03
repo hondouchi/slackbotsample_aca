@@ -220,6 +220,7 @@ az containerapp create \
 #### コンテナー タブ
 
 **コンテナー イメージの設定**:
+
 - **イメージ ソース**: `Azure Container Registry`
 - **レジストリ**: 作成した ACR を選択 (例: `slackbotaca123.azurecr.io`)
 - **イメージ**: `slackbot-sample` (初回は存在しないため、後で更新)
@@ -227,6 +228,7 @@ az containerapp create \
 - **コンテナー名**: `slackbot-app`
 
 **リソースの割り当て**:
+
 - **CPU コア**: `0.5`
 - **メモリ (Gi)**: `1.0`
 
@@ -439,10 +441,12 @@ az containerapp update \
 **確認項目**:
 
 1. **イメージが存在するか確認**
+
    - ACR でイメージがプッシュされているか確認
    - GitHub Actions で初回デプロイを実行
 
 2. **レジストリの認証情報を確認**
+
    - ACR の管理者ユーザーが有効になっているか確認
 
 3. **リビジョンの確認**
@@ -454,6 +458,7 @@ az containerapp update \
 **確認項目**:
 
 1. **Log Analytics の接続を確認**
+
    - Container Apps Environment で Log Analytics が正しく設定されているか確認
 
 2. **診断設定を確認**
@@ -461,9 +466,301 @@ az containerapp update \
 
 ---
 
+## 7. セキュリティ設定 (VNET 統合)
+
+セキュリティを強化するため、Container Apps を仮想ネットワーク内に配置します。
+
+### セキュリティ強化の目的
+
+- **VNET 統合**: Container Apps を仮想ネットワーク内に配置し、外部からの直接アクセスを防ぐ
+- **プライベート通信**: データベースなどの Azure リソースとプライベートに接続
+- **最小権限の原則**: 必要最小限のネットワークアクセスのみを許可
+
+### セキュアなアーキテクチャ
+
+```mermaid
+graph TB
+    Slack[Slack Workspace]
+    VNET[Azure Virtual Network<br/>10.0.0.0/16]
+    ACASubnet[ACA Subnet<br/>10.0.0.0/23]
+    DBSubnet[Database Subnet<br/>10.0.2.0/24]
+    ACA[Container Apps<br/>slackbot-app]
+    DB[Azure Database<br/>プライベートエンドポイント]
+
+    Slack <-->|Socket Mode<br/>WebSocket| ACA
+    VNET --> ACASubnet
+    VNET --> DBSubnet
+    ACASubnet --> ACA
+    DBSubnet --> DB
+    ACA -.->|プライベート接続| DB
+
+    style Slack fill:#4A154B,stroke:#333,stroke-width:2px,color:#fff
+    style VNET fill:#0078D4,stroke:#333,stroke-width:2px,color:#fff
+    style ACA fill:#68A063,stroke:#333,stroke-width:2px,color:#fff
+    style DB fill:#F25022,stroke:#333,stroke-width:2px,color:#fff
+```
+
+### Virtual Network の作成
+
+#### Azure CLI を使用する場合
+
+```bash
+# VNET の作成
+az network vnet create \
+  --resource-group slackbot-aca-rg \
+  --name slackbot-vnet \
+  --address-prefix 10.0.0.0/16 \
+  --location japaneast
+
+# Container Apps 用サブネットの作成 (最低 /23 が必要)
+az network vnet subnet create \
+  --resource-group slackbot-aca-rg \
+  --vnet-name slackbot-vnet \
+  --name aca-subnet \
+  --address-prefixes 10.0.0.0/23
+
+# データベース用サブネットの作成 (将来の拡張用)
+az network vnet subnet create \
+  --resource-group slackbot-aca-rg \
+  --vnet-name slackbot-vnet \
+  --name database-subnet \
+  --address-prefixes 10.0.2.0/24 \
+  --disable-private-endpoint-network-policies false
+```
+
+#### Azure Portal を使用する場合
+
+1. Azure Portal で **仮想ネットワーク** を検索
+2. **+ 作成** をクリック
+3. **基本** タブ:
+   - **サブスクリプション**: 使用するサブスクリプション
+   - **リソース グループ**: `slackbot-aca-rg`
+   - **名前**: `slackbot-vnet`
+   - **リージョン**: `Japan East`
+4. **IP アドレス** タブ:
+   - **IPv4 アドレス空間**: `10.0.0.0/16`
+   - **+ サブネットの追加**:
+     - **名前**: `aca-subnet`
+     - **サブネット アドレス範囲**: `10.0.0.0/23`
+   - **+ サブネットの追加**:
+     - **名前**: `database-subnet`
+     - **サブネット アドレス範囲**: `10.0.2.0/24`
+5. **確認および作成** → **作成**
+
+### VNET 統合された Container Apps Environment の作成
+
+VNET を使用する場合は、ステップ 3 の Container Apps Environment 作成時に以下の手順を実施します。
+
+#### Azure CLI を使用する場合
+
+```bash
+# サブネット ID の取得
+SUBNET_ID=$(az network vnet subnet show \
+  --resource-group slackbot-aca-rg \
+  --vnet-name slackbot-vnet \
+  --name aca-subnet \
+  --query id \
+  --output tsv)
+
+# VNET 統合された Environment の作成
+az containerapp env create \
+  --name slackbot-aca-env \
+  --resource-group slackbot-aca-rg \
+  --location japaneast \
+  --infrastructure-subnet-resource-id $SUBNET_ID \
+  --internal-only false
+```
+
+**パラメータ**:
+- `--infrastructure-subnet-resource-id`: Container Apps が使用するサブネットの ID (`/23` 以上のサブネット)
+- `--internal-only`: 内部専用環境にするか (`false` = Slack からの接続を許可)
+
+> **📝 Note**: Socket Mode では外部からの WebSocket 接続が必要なため、`--internal-only` は `false` に設定します。
+
+#### Azure Portal を使用する場合
+
+1. Azure Portal で **コンテナー アプリ環境** を検索
+2. **+ 作成** をクリック
+3. **基本** タブ:
+   - **サブスクリプション**: 使用するサブスクリプション
+   - **リソース グループ**: `slackbot-aca-rg`
+   - **コンテナー アプリ環境名**: `slackbot-aca-env`
+   - **リージョン**: `Japan East`
+4. **ネットワーク** タブ:
+   - **仮想ネットワーク**: `slackbot-vnet`
+   - **インフラストラクチャ サブネット**: `aca-subnet`
+   - **仮想ネットワーク内部専用**: `いいえ` (Slack からの接続を許可)
+5. **監視** タブ:
+   - **Log Analytics ワークスペース**: 新規作成
+6. **確認および作成** → **作成**
+
+### プライベートエンドポイントの設定 (オプション)
+
+将来、Azure Database などのリソースに接続する場合のプライベートエンドポイント設定例です。
+
+#### Azure Database for PostgreSQL の例 (CLI)
+
+```bash
+# プライベートエンドポイントの作成
+az network private-endpoint create \
+  --resource-group slackbot-aca-rg \
+  --name postgres-private-endpoint \
+  --vnet-name slackbot-vnet \
+  --subnet database-subnet \
+  --private-connection-resource-id <POSTGRES_RESOURCE_ID> \
+  --group-id postgresqlServer \
+  --connection-name postgres-connection
+
+# プライベート DNS ゾーンの作成
+az network private-dns zone create \
+  --resource-group slackbot-aca-rg \
+  --name privatelink.postgres.database.azure.com
+
+# VNET リンクの作成
+az network private-dns link vnet create \
+  --resource-group slackbot-aca-rg \
+  --zone-name privatelink.postgres.database.azure.com \
+  --name postgres-dns-link \
+  --virtual-network slackbot-vnet \
+  --registration-enabled false
+
+# DNS レコードの自動作成
+az network private-endpoint dns-zone-group create \
+  --resource-group slackbot-aca-rg \
+  --endpoint-name postgres-private-endpoint \
+  --name postgres-dns-zone-group \
+  --private-dns-zone privatelink.postgres.database.azure.com \
+  --zone-name postgres
+```
+
+#### Azure Database の例 (Portal)
+
+1. Azure Database for PostgreSQL を作成
+2. **ネットワーク** → **プライベート エンドポイント接続**
+3. **+ プライベート エンドポイント** をクリック
+4. 以下を設定:
+   - **リソース グループ**: `slackbot-aca-rg`
+   - **名前**: `postgres-private-endpoint`
+   - **リージョン**: `Japan East`
+5. **リソース** タブ:
+   - **ターゲット サブリソース**: `postgresqlServer`
+6. **仮想ネットワーク** タブ:
+   - **仮想ネットワーク**: `slackbot-vnet`
+   - **サブネット**: `database-subnet`
+7. **DNS** タブ:
+   - **プライベート DNS ゾーンと統合する**: `はい`
+8. **確認および作成** → **作成**
+
+### セキュリティのベストプラクティス
+
+#### 1. ネットワークセキュリティグループ (NSG) の設定
+
+```bash
+# NSG の作成
+az network nsg create \
+  --resource-group slackbot-aca-rg \
+  --name aca-nsg
+
+# HTTPS アウトバウンドを許可
+az network nsg rule create \
+  --resource-group slackbot-aca-rg \
+  --nsg-name aca-nsg \
+  --name allow-https-outbound \
+  --priority 100 \
+  --direction Outbound \
+  --access Allow \
+  --protocol Tcp \
+  --destination-port-ranges 443 \
+  --source-address-prefixes '*' \
+  --destination-address-prefixes '*'
+
+# NSG をサブネットに適用
+az network vnet subnet update \
+  --resource-group slackbot-aca-rg \
+  --vnet-name slackbot-vnet \
+  --name aca-subnet \
+  --network-security-group aca-nsg
+```
+
+#### 2. マネージド ID の使用
+
+パスワードを使用せず、マネージド ID で ACR にアクセス:
+
+```bash
+# システム割り当てマネージド ID の有効化
+az containerapp identity assign \
+  --name slackbot-app \
+  --resource-group slackbot-aca-rg \
+  --system-assigned
+
+# マネージド ID に ACR へのアクセス権を付与
+PRINCIPAL_ID=$(az containerapp show \
+  --name slackbot-app \
+  --resource-group slackbot-aca-rg \
+  --query identity.principalId \
+  --output tsv)
+
+ACR_ID=$(az acr show \
+  --name <YOUR_ACR_NAME> \
+  --query id \
+  --output tsv)
+
+az role assignment create \
+  --assignee $PRINCIPAL_ID \
+  --role AcrPull \
+  --scope $ACR_ID
+```
+
+#### 3. Azure Key Vault でシークレット管理
+
+```bash
+# Key Vault の作成
+az keyvault create \
+  --name slackbot-kv \
+  --resource-group slackbot-aca-rg \
+  --location japaneast \
+  --enable-rbac-authorization false
+
+# シークレットの追加
+az keyvault secret set \
+  --vault-name slackbot-kv \
+  --name slack-bot-token \
+  --value <SLACK_BOT_TOKEN>
+
+# Container Apps からのアクセスを許可
+az keyvault set-policy \
+  --name slackbot-kv \
+  --object-id $PRINCIPAL_ID \
+  --secret-permissions get list
+```
+
+### セキュリティチェックリスト
+
+実装後、以下の項目を確認してください:
+
+- [ ] Container Apps Environment が VNET 内に配置されている
+- [ ] データベースなどの Azure リソースがプライベートエンドポイント経由で接続されている
+- [ ] NSG で不要なトラフィックがブロックされている
+- [ ] マネージド ID を使用して、認証情報をコードに含めていない
+- [ ] Azure Key Vault でシークレットを管理している
+- [ ] 診断ログが有効化されている
+- [ ] 最小権限の原則に従ってロールが割り当てられている
+
+### コスト影響
+
+VNET 統合による追加コスト:
+
+| リソース                   | 追加コスト                          |
+| -------------------------- | ----------------------------------- |
+| Virtual Network            | 無料                                |
+| プライベートエンドポイント | 約 ¥1,000/月 (エンドポイントあたり) |
+| NSG                        | 無料                                |
+| Key Vault                  | 約 ¥500/月 + トランザクション料金   |
+
+---
+
 ## 次のステップ
 
-- **[セキュリティ設定](setup-security.md)** - VNET統合とセキュリティ強化の設定手順
 - **[GitHub の設定](setup-github.md)** - CI/CD パイプラインの構築
 - **[デプロイフロー](deployment.md)** - 自動デプロイの仕組み
 - **[トラブルシューティング](troubleshooting.md)** - よくある問題と解決方法

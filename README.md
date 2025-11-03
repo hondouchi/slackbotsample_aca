@@ -135,8 +135,7 @@ graph TB
 ### セットアップガイド
 
 - **[Slack アプリの作成](docs/setup-slack.md)** - Slack Bot の作成と設定手順
-- **[Azure リソースの作成](docs/setup-azure.md)** - Azure CLI / Portal を使用したリソース作成手順
-- **[セキュリティ設定](docs/setup-security.md)** - VNET 統合とセキュリティ強化の設定手順
+- **[Azure リソースの作成](docs/setup-azure.md)** - Azure CLI / Portal を使用したリソース作成手順 (VNET統合を含む)
 - **[GitHub の設定](docs/setup-github.md)** - CI/CD パイプラインの設定手順
 
 ### 開発ガイド
