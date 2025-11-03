@@ -106,26 +106,125 @@ az acr credential show \
 
 ---
 
-## 3. Container Apps Environment の作成
+## 3. Virtual Network とサブネットの作成
 
-Container Apps の実行環境を作成します。
+セキュリティを強化するため、Container Apps を仮想ネットワーク内に配置します。
+
+### セキュアなアーキテクチャ
+
+```mermaid
+graph TB
+    Slack[Slack Workspace]
+    VNET[Azure Virtual Network<br/>10.0.0.0/16]
+    ACASubnet[ACA Subnet<br/>10.0.0.0/23]
+    DBSubnet[Database Subnet<br/>10.0.2.0/24]
+    ACA[Container Apps<br/>slackbot-app]
+    DB[Azure Database<br/>プライベートエンドポイント]
+
+    Slack <-->|Socket Mode<br/>WebSocket| ACA
+    VNET --> ACASubnet
+    VNET --> DBSubnet
+    ACASubnet --> ACA
+    DBSubnet --> DB
+    ACA -.->|プライベート接続| DB
+
+    style Slack fill:#4A154B,stroke:#333,stroke-width:2px,color:#fff
+    style VNET fill:#0078D4,stroke:#333,stroke-width:2px,color:#fff
+    style ACA fill:#68A063,stroke:#333,stroke-width:2px,color:#fff
+    style DB fill:#F25022,stroke:#333,stroke-width:2px,color:#fff
+```
 
 ### Azure CLI を使用する場合
 
 ```bash
-az containerapp env create \
-  --name slackbot-aca-env \
+# VNET の作成
+az network vnet create \
   --resource-group slackbot-aca-rg \
+  --name slackbot-vnet \
+  --address-prefix 10.0.0.0/16 \
   --location japaneast
+
+# Container Apps 用サブネットの作成 (最低 /23 が必要)
+az network vnet subnet create \
+  --resource-group slackbot-aca-rg \
+  --vnet-name slackbot-vnet \
+  --name aca-subnet \
+  --address-prefixes 10.0.0.0/23
+
+# データベース用サブネットの作成 (将来の拡張用)
+az network vnet subnet create \
+  --resource-group slackbot-aca-rg \
+  --vnet-name slackbot-vnet \
+  --name database-subnet \
+  --address-prefixes 10.0.2.0/24 \
+  --disable-private-endpoint-network-policies false
 ```
 
 **パラメータ**:
+- `--address-prefix`: VNET のアドレス空間 (`10.0.0.0/16`)
+- `--address-prefixes`: サブネットのアドレス範囲
+  - Container Apps 用: `/23` 以上が必要 (512 アドレス)
+  - データベース用: `/24` (256 アドレス)
 
+### Azure Portal を使用する場合
+
+1. Azure Portal で **仮想ネットワーク** を検索
+2. **+ 作成** をクリック
+3. **基本** タブ:
+   - **サブスクリプション**: 使用するサブスクリプション
+   - **リソース グループ**: `slackbot-aca-rg`
+   - **名前**: `slackbot-vnet`
+   - **リージョン**: `Japan East`
+4. **IP アドレス** タブ:
+   - **IPv4 アドレス空間**: `10.0.0.0/16`
+   - **+ サブネットの追加**:
+     - **名前**: `aca-subnet`
+     - **サブネット アドレス範囲**: `10.0.0.0/23`
+   - **+ サブネットの追加**:
+     - **名前**: `database-subnet`
+     - **サブネット アドレス範囲**: `10.0.2.0/24`
+5. **確認および作成** → **作成**
+
+> **📝 補足**: 
+> - Container Apps Environment には最低でも `/23` (512 アドレス) のサブネットが必要です
+> - データベース用サブネットは将来の拡張用です (プライベートエンドポイント接続に使用)
+
+---
+
+## 4. Container Apps Environment の作成 (VNET 統合)
+
+Container Apps の実行環境を VNET 内に作成します。
+
+### Azure CLI を使用する場合
+
+```bash
+# サブネット ID の取得
+SUBNET_ID=$(az network vnet subnet show \
+  --resource-group slackbot-aca-rg \
+  --vnet-name slackbot-vnet \
+  --name aca-subnet \
+  --query id \
+  --output tsv)
+
+# VNET 統合された Environment の作成
+az containerapp env create \
+  --name slackbot-aca-env \
+  --resource-group slackbot-aca-rg \
+  --location japaneast \
+  --infrastructure-subnet-resource-id $SUBNET_ID \
+  --internal-only false
+```
+
+**パラメータ**:
 - `--name`: 環境名 (任意、例: `slackbot-aca-env`)
 - `--resource-group`: リソースグループ名
 - `--location`: リージョン
+- `--infrastructure-subnet-resource-id`: Container Apps が使用するサブネットの ID
+- `--internal-only`: 内部専用環境にするか (`false` = Slack からの接続を許可)
 
-> **📝 補足**: この環境には Log Analytics ワークスペースが自動的に作成され、ログとメトリクスが収集されます。
+> **📝 Note**: 
+> - Log Analytics ワークスペースが自動的に作成され、ログとメトリクスが収集されます
+> - Socket Mode では外部からの WebSocket 接続が必要なため、`--internal-only` は `false` に設定します
 
 ### Azure Portal を使用する場合
 
@@ -137,15 +236,19 @@ az containerapp env create \
    - **コンテナー アプリ環境名**: `slackbot-aca-env`
    - **リージョン**: `Japan East`
    - **ゾーン冗長**: `無効` (開発環境の場合)
-4. **監視** タブ:
+4. **ネットワーク** タブ:
+   - **仮想ネットワーク**: `slackbot-vnet`
+   - **インフラストラクチャ サブネット**: `aca-subnet`
+   - **仮想ネットワーク内部専用**: `いいえ` (Slack からの接続を許可)
+5. **監視** タブ:
    - **Log Analytics ワークスペース**: `新規作成` (自動生成)
-5. **確認および作成** → **作成**
+6. **確認および作成** → **作成**
 
 > **📝 補足**: Log Analytics ワークスペースが自動的に作成され、ログとメトリクスが収集されます。
 
 ---
 
-## 4. Azure Container Apps の作成
+## 5. Azure Container Apps の作成
 
 実際にアプリケーションを実行する Container Apps を作成します。
 
@@ -282,7 +385,7 @@ az containerapp create \
 
 ---
 
-## 5. 環境変数の更新 (後から変更する場合)
+## 6. 環境変数の更新 (後から変更する場合)
 
 環境変数を後から更新する場合の手順です。
 
@@ -315,7 +418,7 @@ az containerapp revision restart \
 
 ---
 
-## 6. デプロイの確認
+## 7. デプロイの確認
 
 デプロイが正常に完了したかを確認します。
 
@@ -466,135 +569,11 @@ az containerapp update \
 
 ---
 
-## 7. セキュリティ設定 (VNET 統合)
+## 8. 追加のセキュリティ設定 (オプション)
 
-セキュリティを強化するため、Container Apps を仮想ネットワーク内に配置します。
+基本的なVNET統合に加え、さらなるセキュリティ強化のための設定です。
 
-### セキュリティ強化の目的
-
-- **VNET 統合**: Container Apps を仮想ネットワーク内に配置し、外部からの直接アクセスを防ぐ
-- **プライベート通信**: データベースなどの Azure リソースとプライベートに接続
-- **最小権限の原則**: 必要最小限のネットワークアクセスのみを許可
-
-### セキュアなアーキテクチャ
-
-```mermaid
-graph TB
-    Slack[Slack Workspace]
-    VNET[Azure Virtual Network<br/>10.0.0.0/16]
-    ACASubnet[ACA Subnet<br/>10.0.0.0/23]
-    DBSubnet[Database Subnet<br/>10.0.2.0/24]
-    ACA[Container Apps<br/>slackbot-app]
-    DB[Azure Database<br/>プライベートエンドポイント]
-
-    Slack <-->|Socket Mode<br/>WebSocket| ACA
-    VNET --> ACASubnet
-    VNET --> DBSubnet
-    ACASubnet --> ACA
-    DBSubnet --> DB
-    ACA -.->|プライベート接続| DB
-
-    style Slack fill:#4A154B,stroke:#333,stroke-width:2px,color:#fff
-    style VNET fill:#0078D4,stroke:#333,stroke-width:2px,color:#fff
-    style ACA fill:#68A063,stroke:#333,stroke-width:2px,color:#fff
-    style DB fill:#F25022,stroke:#333,stroke-width:2px,color:#fff
-```
-
-### Virtual Network の作成
-
-#### Azure CLI を使用する場合
-
-```bash
-# VNET の作成
-az network vnet create \
-  --resource-group slackbot-aca-rg \
-  --name slackbot-vnet \
-  --address-prefix 10.0.0.0/16 \
-  --location japaneast
-
-# Container Apps 用サブネットの作成 (最低 /23 が必要)
-az network vnet subnet create \
-  --resource-group slackbot-aca-rg \
-  --vnet-name slackbot-vnet \
-  --name aca-subnet \
-  --address-prefixes 10.0.0.0/23
-
-# データベース用サブネットの作成 (将来の拡張用)
-az network vnet subnet create \
-  --resource-group slackbot-aca-rg \
-  --vnet-name slackbot-vnet \
-  --name database-subnet \
-  --address-prefixes 10.0.2.0/24 \
-  --disable-private-endpoint-network-policies false
-```
-
-#### Azure Portal を使用する場合
-
-1. Azure Portal で **仮想ネットワーク** を検索
-2. **+ 作成** をクリック
-3. **基本** タブ:
-   - **サブスクリプション**: 使用するサブスクリプション
-   - **リソース グループ**: `slackbot-aca-rg`
-   - **名前**: `slackbot-vnet`
-   - **リージョン**: `Japan East`
-4. **IP アドレス** タブ:
-   - **IPv4 アドレス空間**: `10.0.0.0/16`
-   - **+ サブネットの追加**:
-     - **名前**: `aca-subnet`
-     - **サブネット アドレス範囲**: `10.0.0.0/23`
-   - **+ サブネットの追加**:
-     - **名前**: `database-subnet`
-     - **サブネット アドレス範囲**: `10.0.2.0/24`
-5. **確認および作成** → **作成**
-
-### VNET 統合された Container Apps Environment の作成
-
-VNET を使用する場合は、ステップ 3 の Container Apps Environment 作成時に以下の手順を実施します。
-
-#### Azure CLI を使用する場合
-
-```bash
-# サブネット ID の取得
-SUBNET_ID=$(az network vnet subnet show \
-  --resource-group slackbot-aca-rg \
-  --vnet-name slackbot-vnet \
-  --name aca-subnet \
-  --query id \
-  --output tsv)
-
-# VNET 統合された Environment の作成
-az containerapp env create \
-  --name slackbot-aca-env \
-  --resource-group slackbot-aca-rg \
-  --location japaneast \
-  --infrastructure-subnet-resource-id $SUBNET_ID \
-  --internal-only false
-```
-
-**パラメータ**:
-- `--infrastructure-subnet-resource-id`: Container Apps が使用するサブネットの ID (`/23` 以上のサブネット)
-- `--internal-only`: 内部専用環境にするか (`false` = Slack からの接続を許可)
-
-> **📝 Note**: Socket Mode では外部からの WebSocket 接続が必要なため、`--internal-only` は `false` に設定します。
-
-#### Azure Portal を使用する場合
-
-1. Azure Portal で **コンテナー アプリ環境** を検索
-2. **+ 作成** をクリック
-3. **基本** タブ:
-   - **サブスクリプション**: 使用するサブスクリプション
-   - **リソース グループ**: `slackbot-aca-rg`
-   - **コンテナー アプリ環境名**: `slackbot-aca-env`
-   - **リージョン**: `Japan East`
-4. **ネットワーク** タブ:
-   - **仮想ネットワーク**: `slackbot-vnet`
-   - **インフラストラクチャ サブネット**: `aca-subnet`
-   - **仮想ネットワーク内部専用**: `いいえ` (Slack からの接続を許可)
-5. **監視** タブ:
-   - **Log Analytics ワークスペース**: 新規作成
-6. **確認および作成** → **作成**
-
-### プライベートエンドポイントの設定 (オプション)
+### プライベートエンドポイントの設定
 
 将来、Azure Database などのリソースに接続する場合のプライベートエンドポイント設定例です。
 
