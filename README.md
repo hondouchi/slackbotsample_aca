@@ -32,37 +32,24 @@ Slack の Socket Mode を使用して、メンションに反応してメッセ�
 
 ## アーキテクチャ
 
-```
-┌─────────────┐
-│   Slack     │
-│  Workspace  │
-└──────┬──────┘
-       │ Socket Mode
-       │ (WebSocket)
-       ▼
-┌─────────────────────────┐
-│  Azure Container Apps   │
-│  (slackbot-acasample)   │
-│                         │
-│  ┌──────────────────┐  │
-│  │   Node.js App    │  │
-│  │   (@slack/bolt)  │  │
-│  └──────────────────┘  │
-└─────────────────────────┘
-       ▲
-       │ Pull Image
-       │
-┌─────────────────────────┐
-│ Azure Container Registry│
-│  (slackbotaca.azurecr.io)│
-└─────────────────────────┘
-       ▲
-       │ Push Image
-       │
-┌─────────────────────────┐
-│   GitHub Actions        │
-│   (CI/CD Pipeline)      │
-└─────────────────────────┘
+```mermaid
+graph TB
+    Slack[Slack Workspace]
+    ACA[Azure Container Apps<br/>slackbot-acasample]
+    App[Node.js App<br/>@slack/bolt]
+    ACR[Azure Container Registry<br/>slackbotaca.azurecr.io]
+    GHA[GitHub Actions<br/>CI/CD Pipeline]
+
+    Slack <-->|Socket Mode<br/>WebSocket| ACA
+    ACA --> App
+    ACR -->|Pull Image| ACA
+    GHA -->|Push Image| ACR
+
+    style Slack fill:#4A154B,stroke:#333,stroke-width:2px,color:#fff
+    style ACA fill:#0078D4,stroke:#333,stroke-width:2px,color:#fff
+    style App fill:#68A063,stroke:#333,stroke-width:2px,color:#fff
+    style ACR fill:#0078D4,stroke:#333,stroke-width:2px,color:#fff
+    style GHA fill:#2088FF,stroke:#333,stroke-width:2px,color:#fff
 ```
 
 ---
