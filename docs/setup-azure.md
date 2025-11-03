@@ -9,8 +9,38 @@
 ### Azure CLI を使用する場合
 
 - Azure サブスクリプション
-- Azure CLI がインストールされていること
+- Azure CLI (バージョン 2.28.0 以上) がインストールされていること
 - Azure にログイン済みであること (`az login`)
+
+#### セットアップ手順
+
+1. **Azure CLI を最新版に更新**
+
+```bash
+az upgrade
+```
+
+2. **Container Apps 拡張機能のインストール/更新**
+
+```bash
+az extension add --name containerapp --upgrade
+```
+
+3. **必要なリソースプロバイダーの登録**
+
+```bash
+az provider register --namespace Microsoft.App
+az provider register --namespace Microsoft.OperationalInsights
+```
+
+登録には数分かかる場合があります。以下のコマンドで状態を確認できます:
+
+```bash
+az provider show -n Microsoft.App --query "registrationState"
+az provider show -n Microsoft.OperationalInsights --query "registrationState"
+```
+
+両方とも `"Registered"` と表示されれば完了です。
 
 ### Azure Portal を使用する場合
 
@@ -160,6 +190,13 @@ az network vnet subnet create \
   --disable-private-endpoint-network-policies false
 ```
 
+> **⚠️ 重要**: サブネットの委任について
+>
+> - **従量課金(Consumption)環境の場合**: サブネットの委任は**不要**です（委任しないでください）
+> - **ワークロードプロファイル環境の場合**: サブネットを `Microsoft.App/environments` に委任する必要があります
+>
+> このガイドでは従量課金環境を使用するため、サブネットの委任は行いません。
+
 **パラメータ**:
 
 - `--address-prefix`: VNET のアドレス空間 (`10.0.0.0/16`)
@@ -267,6 +304,35 @@ az containerapp env create \
   --logs-workspace-id $WORKSPACE_ID \
   --logs-workspace-key $WORKSPACE_KEY
 ```
+
+> **⚠️ トラブルシューティング**:
+>
+> もし `ManagedEnvironmentInvalidNetworkConfiguration` エラーが発生した場合:
+>
+> 1. サブネットに委任が設定されていないことを確認:
+>
+>    ```bash
+>    az network vnet subnet show --resource-group rg-slackbot-aca \
+>      --vnet-name slackbot-aca-vnet --name aca-subnet \
+>      --query "delegations" -o json
+>    ```
+>
+>    結果が `[]` (空配列) であることを確認してください。
+>
+> 2. もし委任がある場合は削除:
+>
+>    ```bash
+>    az network vnet subnet update --resource-group rg-slackbot-aca \
+>      --vnet-name slackbot-aca-vnet --name aca-subnet \
+>      --remove delegations
+>    ```
+>
+> 3. リソースプロバイダーが登録済みか確認:
+>    ```bash
+>    az provider show -n Microsoft.App --query "registrationState"
+>    az provider show -n Microsoft.OperationalInsights --query "registrationState"
+>    ```
+>    両方とも `"Registered"` であることを確認してください。
 
 **パラメータ**:
 
