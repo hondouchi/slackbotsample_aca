@@ -29,7 +29,8 @@ az extension add --name containerapp --upgrade --allow-preview true
 ```
 
 > **📝 Note**: `az containerapp` コマンドは**拡張機能(Extension)**であり、**Preview**（プレビュー）ステータスです。
-> - 2024年5月以降、Azure CLI拡張機能では既定でプレビュー機能が無効になっているため、`--allow-preview true` が必要です
+>
+> - 2024 年 5 月以降、Azure CLI 拡張機能では既定でプレビュー機能が無効になっているため、`--allow-preview true` が必要です
 > - コマンド実行時に以下のような警告が表示されますが、これは正常な動作です：
 >
 > ```
@@ -189,7 +190,8 @@ az network vnet subnet create \
   --resource-group rg-slackbot-aca \
   --vnet-name slackbot-aca-vnet \
   --name aca-subnet \
-  --address-prefixes 10.0.0.0/23
+  --address-prefixes 10.0.0.0/23 \
+  --delegations Microsoft.App/environments
 
 # データベース用サブネットの作成 (将来の拡張用)
 az network vnet subnet create \
@@ -202,10 +204,17 @@ az network vnet subnet create \
 
 > **⚠️ 重要**: サブネットの委任について
 >
-> - **従量課金(Consumption)環境の場合**: サブネットの委任は**不要**です（委任しないでください）
-> - **ワークロードプロファイル環境の場合**: サブネットを `Microsoft.App/environments` に委任する必要があります
+> `--allow-preview true`でcontainerapp拡張機能をインストールした場合、サブネットを `Microsoft.App/environments` に**委任する必要があります**。
 >
-> このガイドでは従量課金環境を使用するため、サブネットの委任は行いません。
+> - サブネット作成時に `--delegations Microsoft.App/environments` を指定
+> - または、既存のサブネットに委任を追加：
+>   ```bash
+>   az network vnet subnet update \
+>     --resource-group rg-slackbot-aca \
+>     --vnet-name slackbot-aca-vnet \
+>     --name aca-subnet \
+>     --delegations Microsoft.App/environments
+>   ```
 
 **パラメータ**:
 
