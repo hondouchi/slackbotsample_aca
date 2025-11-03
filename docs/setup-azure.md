@@ -193,7 +193,56 @@ az network vnet subnet create \
 
 ---
 
-## 4. Container Apps Environment の作成 (VNET 統合)
+## 4. Log Analytics Workspace の作成
+
+Container Apps のログとメトリクスを収集するための Log Analytics Workspace を作成します。
+
+### Azure CLI を使用する場合
+
+```bash
+# Log Analytics Workspaceを作成
+az monitor log-analytics workspace create \
+  --resource-group rg-slackbot-aca \
+  --workspace-name ws-slackapp-aca \
+  --location japaneast
+
+# Workspace IDを取得
+WORKSPACE_ID=$(az monitor log-analytics workspace show \
+  --resource-group rg-slackbot-aca \
+  --workspace-name ws-slackapp-aca \
+  --query customerId \
+  --output tsv)
+
+# Workspace Keyを取得
+WORKSPACE_KEY=$(az monitor log-analytics workspace get-shared-keys \
+  --resource-group rg-slackbot-aca \
+  --workspace-name ws-slackapp-aca \
+  --query primarySharedKey \
+  --output tsv)
+```
+
+**パラメータ**:
+
+- `--workspace-name`: Workspace 名 (任意、例: `ws-slackapp-aca`)
+- `--resource-group`: リソースグループ名
+- `--location`: リージョン
+
+### Azure Portal を使用する場合
+
+1. Azure Portal で **Log Analytics ワークスペース** を検索
+2. **+ 作成** をクリック
+3. 以下を設定:
+   - **サブスクリプション**: 使用するサブスクリプション
+   - **リソース グループ**: `rg-slackbot-aca`
+   - **名前**: `ws-slackapp-aca`
+   - **リージョン**: `Japan East`
+4. **確認および作成** → **作成**
+
+> **📝 補足**: Portal で作成した場合、次のステップで Workspace を選択する際に使用します。
+
+---
+
+## 5. Container Apps Environment の作成 (VNET 統合)
 
 Container Apps の実行環境を VNET 内に作成します。
 
@@ -208,13 +257,15 @@ SUBNET_ID=$(az network vnet subnet show \
   --query id \
   --output tsv)
 
-# VNET 統合された Environment の作成
+# VNET 統合された Environment の作成（Log Analytics Workspace を指定）
 az containerapp env create \
   --name slackbot-aca-env \
   --resource-group rg-slackbot-aca \
   --location japaneast \
   --infrastructure-subnet-resource-id $SUBNET_ID \
-  --internal-only false
+  --internal-only false \
+  --logs-workspace-id $WORKSPACE_ID \
+  --logs-workspace-key $WORKSPACE_KEY
 ```
 
 **パラメータ**:
@@ -224,11 +275,10 @@ az containerapp env create \
 - `--location`: リージョン
 - `--infrastructure-subnet-resource-id`: Container Apps が使用するサブネットの ID
 - `--internal-only`: 内部専用環境にするか (`false` = Slack からの接続を許可)
+- `--logs-workspace-id`: Log Analytics Workspace の Customer ID
+- `--logs-workspace-key`: Log Analytics Workspace の共有キー
 
-> **📝 Note**:
->
-> - Log Analytics ワークスペースが自動的に作成され、ログとメトリクスが収集されます
-> - Socket Mode では外部からの WebSocket 接続が必要なため、`--internal-only` は `false` に設定します
+> **📝 Note**: Socket Mode では外部からの WebSocket 接続が必要なため、`--internal-only` は `false` に設定します。
 
 ### Azure Portal を使用する場合
 
@@ -245,14 +295,14 @@ az containerapp env create \
    - **インフラストラクチャ サブネット**: `aca-subnet`
    - **仮想ネットワーク内部専用**: `いいえ` (Slack からの接続を許可)
 5. **監視** タブ:
-   - **Log Analytics ワークスペース**: `新規作成` (自動生成)
+   - **Log Analytics ワークスペース**: `ws-slackapp-aca` (先ほど作成したもの)
 6. **確認および作成** → **作成**
 
-> **📝 補足**: Log Analytics ワークスペースが自動的に作成され、ログとメトリクスが収集されます。
+> **📝 補足**: 先ほど作成した Log Analytics ワークスペースを選択することで、ログが指定した Workspace に収集されます。
 
 ---
 
-## 5. Azure Container Apps の作成
+## 6. Azure Container Apps の作成
 
 実際にアプリケーションを実行する Container Apps を作成します。
 
@@ -389,7 +439,7 @@ az containerapp create \
 
 ---
 
-## 6. 環境変数の更新 (後から変更する場合)
+## 7. 環境変数の更新 (後から変更する場合)
 
 環境変数を後から更新する場合の手順です。
 
@@ -422,7 +472,7 @@ az containerapp revision restart \
 
 ---
 
-## 7. デプロイの確認
+## 8. デプロイの確認
 
 デプロイが正常に完了したかを確認します。
 
@@ -573,7 +623,7 @@ az containerapp update \
 
 ---
 
-## 8. 追加のセキュリティ設定 (オプション)
+## 9. 追加のセキュリティ設定 (オプション)
 
 基本的な VNET 統合に加え、さらなるセキュリティ強化のための設定です。
 
