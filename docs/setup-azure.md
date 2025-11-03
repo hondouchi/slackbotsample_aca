@@ -20,11 +20,21 @@
 az upgrade
 ```
 
-2. **Container Apps 拡張機能のインストール/更新**
+> **⚠️ 重要**: `az upgrade` を実行しないと、次のステップの `--allow-preview` オプションが使えません。
+
+2. **Container Apps 拡張機能のインストール/更新（プレビュー機能を有効化）**
 
 ```bash
-az extension add --name containerapp --upgrade
+az extension add --name containerapp --upgrade --allow-preview true
 ```
+
+> **📝 Note**: `az containerapp` コマンドは**拡張機能(Extension)**であり、**Preview**（プレビュー）ステータスです。
+> - 2024年5月以降、Azure CLI拡張機能では既定でプレビュー機能が無効になっているため、`--allow-preview true` が必要です
+> - コマンド実行時に以下のような警告が表示されますが、これは正常な動作です：
+>
+> ```
+> Command group 'containerapp' is in preview and under development.
+> ```
 
 3. **必要なリソースプロバイダーの登録**
 
@@ -304,6 +314,14 @@ az containerapp env create \
   --logs-workspace-id $WORKSPACE_ID \
   --logs-workspace-key $WORKSPACE_KEY
 ```
+
+> **📝 Note**: コマンド実行時に以下の警告が表示されますが、これは正常です：
+>
+> ```
+> Command group 'containerapp' is in preview and under development.
+> ```
+>
+> `az containerapp` は拡張機能(Extension)かつ Preview ステータスのため、この警告が表示されます。
 
 > **⚠️ トラブルシューティング**:
 >
