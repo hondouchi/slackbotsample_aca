@@ -501,9 +501,10 @@ az keyvault create \
   --name kv-slackbot-aca \  # グローバル一意な名前が必要
   --resource-group rg-slackbot-aca \
   --location japaneast \
-  --enable-purge-protection true \
-  --enable-soft-delete true
+  --enable-purge-protection true
 ```
+
+> **ℹ️ 注意 (Key Vault 作成フラグ変更)**: `--enable-soft-delete` は現在の CLI では指定不要 (既定で有効)。削除保護を有効化したい場合は `--enable-purge-protection true` のみで十分です。検証環境で不要な場合は省略可能。
 
 > **📝 補足**: 名前はグローバル一意です。既に使用されている場合はサフィックスを付けてください (例: `kv-slackbot-aca-dev`). `--enable-purge-protection` は本番で推奨。検証環境では省略可能。
 
