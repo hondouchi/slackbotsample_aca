@@ -399,6 +399,24 @@ az containerapp env create \
 
 実際にアプリケーションを実行する Container Apps を作成します。
 
+### シークレット管理方式の選択
+
+| 方式                                                   | 特徴                                           | 初期導入コスト | ローテーション対応          | 監査/アクセス制御               | 運用の複雑さ | 典型ユースケース                     |
+| ------------------------------------------------------ | ---------------------------------------------- | -------------- | --------------------------- | ------------------------------- | ------------ | ------------------------------------ |
+| インライン (`--secrets` 直接投入)                      | その場で値を CLI から登録。最速。              | 低             | 手動再登録必要              | 最低限 (Container App 内部のみ) | 低           | 検証環境 / PoC / 一時的トークン      |
+| Key Vault 同期 (CLI で取得 →`secret set`)              | Key Vault を単一ソースにしつつ現行パターン維持 | 中             | Key Vault 上書き → 次回同期 | Key Vault RBAC/Audit ログ利用可 | 中           | 小～中規模本番 / 段階的移行期        |
+| アプリコードで Key Vault 参照 (Managed Identity + SDK) | 常に最新を起動時/リクエスト時に取得            | 中〜高         | 自動 (Vault 値更新で即反映) | Key Vault RBAC/Audit ログ利用可 | やや高       | 機密性が高く頻繁に更新される資格情報 |
+
+速さ優先の検証なら「インライン」。本番運用で監査・ローテーション性が必要なら「Key Vault」。高頻度更新やゼロタッチ反映が要る場合は「アプリコード参照」を選択します。
+
+> **判断ガイド (簡略フロー)**:
+>
+> 1. 監査/アクセス分離が必要か? → YES → Key Vault
+> 2. トークン更新頻度が高いか? → YES → アプリコード参照 / NO → Key Vault 同期
+> 3. 今すぐ動かしたいだけか? → YES → インライン
+
+以下、まずインライン方式。その後 Key Vault 推奨パターンを記載します。
+
 ### Azure CLI を使用する場合
 
 > **🔐 Key Vault 統合 (推奨)**: 機密情報を `--secrets slack-bot-token=...` で直接投入する代わりに、Azure Key Vault に保存し、Container Apps から参照する方式に移行すると、ローテーション性・監査性・運用安全性が向上します。既存手順は「インライン登録方式」、本ガイド後半で「Key Vault 参照方式」を示します。
@@ -546,17 +564,17 @@ Node.js 例 (Managed Identity + Azure SDK):
 
 ```javascript
 // package.json に "@azure/identity", "@azure/keyvault-secrets" を追加
-import { DefaultAzureCredential } from "@azure/identity";
-import { SecretClient } from "@azure/keyvault-secrets";
+import { DefaultAzureCredential } from '@azure/identity';
+import { SecretClient } from '@azure/keyvault-secrets';
 
 const credential = new DefaultAzureCredential();
-const vaultUrl = "https://kv-slackbot-aca.vault.azure.net";
+const vaultUrl = 'https://kv-slackbot-aca.vault.azure.net';
 const client = new SecretClient(vaultUrl, credential);
 
 async function loadSecrets() {
-  const slackBotToken = await client.getSecret("slack-bot-token");
-  const slackAppToken = await client.getSecret("slack-app-token");
-  const botUserId = await client.getSecret("bot-user-id");
+  const slackBotToken = await client.getSecret('slack-bot-token');
+  const slackAppToken = await client.getSecret('slack-app-token');
+  const botUserId = await client.getSecret('bot-user-id');
   return {
     SLACK_BOT_TOKEN: slackBotToken.value,
     SLACK_APP_TOKEN: slackAppToken.value,
@@ -564,18 +582,19 @@ async function loadSecrets() {
   };
 }
 
-loadSecrets().then(secrets => {
-  console.log("Secrets loaded", Object.keys(secrets));
+loadSecrets().then((secrets) => {
+  console.log('Secrets loaded', Object.keys(secrets));
 });
 ```
 
 > **メリット比較**:
+>
 > - CLI 同期: 単純 / 既存パターンに馴染む / ローテーション時は再同期必要
 > - コード取得: 自動最新 / ローテーション即反映 / 起動時レイテンシ増加可能性 / SDK 依存
 
 #### 6.7 GitHub Actions への組み込み (自動同期)
 
-GitHub Actions でデプロイ前に Key Vault から取得→`az containerapp secret set`→`az containerapp update` を行う例:
+GitHub Actions でデプロイ前に Key Vault から取得 →`az containerapp secret set`→`az containerapp update` を行う例:
 
 ```yaml
 - name: Fetch secrets from Key Vault
@@ -599,7 +618,7 @@ GitHub Actions でデプロイ前に Key Vault から取得→`az containerapp s
         BOT_USER_ID=secretref:bot-user-id
 ```
 
-> **🔁 ローテーション運用**: Slack トークンが更新されたら Key Vault の値を差し替え→次回 CI/CD 実行時に自動反映。即時反映したい場合は手動で同期コマンドを実行。
+> **🔁 ローテーション運用**: Slack トークンが更新されたら Key Vault の値を差し替え → 次回 CI/CD 実行時に自動反映。即時反映したい場合は手動で同期コマンドを実行。
 
 ---
 
