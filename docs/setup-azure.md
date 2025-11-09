@@ -401,6 +401,8 @@ az containerapp env create \
 
 ### Azure CLI を使用する場合
 
+> **🔐 Key Vault 統合 (推奨)**: 機密情報を `--secrets slack-bot-token=...` で直接投入する代わりに、Azure Key Vault に保存し、Container Apps から参照する方式に移行すると、ローテーション性・監査性・運用安全性が向上します。既存手順は「インライン登録方式」、本ガイド後半で「Key Vault 参照方式」を示します。
+
 ```bash
 az containerapp create \
   --name slackbot-app \
@@ -453,6 +455,153 @@ az containerapp create \
 - `<BOT_USER_ID>`: Bot User ID (例: `U08QCB7J1PH`)
 
 > **⚠️ 注意**: 初回は Docker イメージが ACR に存在しないため、エラーになる可能性があります。GitHub Actions で初回デプロイ後に自動更新されます。
+
+### Key Vault を使ったシークレット管理 (推奨パターン)
+
+#### 6.1 Key Vault の作成
+
+```bash
+az keyvault create \
+  --name kv-slackbot-aca \  # グローバル一意な名前が必要
+  --resource-group rg-slackbot-aca \
+  --location japaneast \
+  --enable-purge-protection true \
+  --enable-soft-delete true
+```
+
+> **📝 補足**: 名前はグローバル一意です。既に使用されている場合はサフィックスを付けてください (例: `kv-slackbot-aca-dev`). `--enable-purge-protection` は本番で推奨。検証環境では省略可能。
+
+#### 6.2 Key Vault にシークレットを登録
+
+```bash
+az keyvault secret set --vault-name kv-slackbot-aca --name slack-bot-token --value <SLACK_BOT_TOKEN>
+az keyvault secret set --vault-name kv-slackbot-aca --name slack-app-token --value <SLACK_APP_TOKEN>
+az keyvault secret set --vault-name kv-slackbot-aca --name bot-user-id --value <BOT_USER_ID>
+```
+
+#### 6.3 Container App にマネージド ID を付与
+
+```bash
+az containerapp identity assign \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --system-assigned
+```
+
+ID が付与されたら、そのプリンシパル ID を取得します:
+
+```bash
+APP_PRINCIPAL_ID=$(az containerapp show \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --query identity.principalId -o tsv)
+echo $APP_PRINCIPAL_ID
+```
+
+#### 6.4 Key Vault へのアクセス権付与 (RBAC 推奨)
+
+Azure RBAC を利用する場合 (推奨):
+
+```bash
+az role assignment create \
+  --assignee $APP_PRINCIPAL_ID \
+  --role "Key Vault Secrets User" \
+  --scope $(az keyvault show --name kv-slackbot-aca --query id -o tsv)
+```
+
+> **🔐 注意**: 古いアクセスポリシー方式 (`az keyvault set-policy`) は新規導入では非推奨。RBAC ベースの `Key Vault Secrets User` ロールを使うと運用性が向上します。
+
+#### 6.5 Key Vault シークレット参照で Container App を更新
+
+Container Apps では Key Vault シークレットの直接参照は現時点で `secretref` を使った値インジェクションが基本です。Key Vault から自動同期は行われないため、更新時に再取得して `secret set` するか、アプリ側で Managed Identity を使って SDK 経由で取得する 2 パターンがあります。
+
+ここでは CLI 同期パターンを示します:
+
+```bash
+# Key Vault から最新値を取得して Container App のシークレットに反映
+SLACK_BOT_TOKEN=$(az keyvault secret show --vault-name kv-slackbot-aca --name slack-bot-token --query value -o tsv)
+SLACK_APP_TOKEN=$(az keyvault secret show --vault-name kv-slackbot-aca --name slack-app-token --query value -o tsv)
+BOT_USER_ID=$(az keyvault secret show --vault-name kv-slackbot-aca --name bot-user-id --query value -o tsv)
+
+az containerapp secret set \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --secrets \
+    slack-bot-token=$SLACK_BOT_TOKEN \
+    slack-app-token=$SLACK_APP_TOKEN \
+    bot-user-id=$BOT_USER_ID
+
+az containerapp update \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --env-vars \
+    SLACK_BOT_TOKEN=secretref:slack-bot-token \
+    SLACK_APP_TOKEN=secretref:slack-app-token \
+    BOT_USER_ID=secretref:bot-user-id
+```
+
+#### 6.6 アプリコードから直接取得する方式 (代替案)
+
+Node.js 例 (Managed Identity + Azure SDK):
+
+```javascript
+// package.json に "@azure/identity", "@azure/keyvault-secrets" を追加
+import { DefaultAzureCredential } from "@azure/identity";
+import { SecretClient } from "@azure/keyvault-secrets";
+
+const credential = new DefaultAzureCredential();
+const vaultUrl = "https://kv-slackbot-aca.vault.azure.net";
+const client = new SecretClient(vaultUrl, credential);
+
+async function loadSecrets() {
+  const slackBotToken = await client.getSecret("slack-bot-token");
+  const slackAppToken = await client.getSecret("slack-app-token");
+  const botUserId = await client.getSecret("bot-user-id");
+  return {
+    SLACK_BOT_TOKEN: slackBotToken.value,
+    SLACK_APP_TOKEN: slackAppToken.value,
+    BOT_USER_ID: botUserId.value,
+  };
+}
+
+loadSecrets().then(secrets => {
+  console.log("Secrets loaded", Object.keys(secrets));
+});
+```
+
+> **メリット比較**:
+> - CLI 同期: 単純 / 既存パターンに馴染む / ローテーション時は再同期必要
+> - コード取得: 自動最新 / ローテーション即反映 / 起動時レイテンシ増加可能性 / SDK 依存
+
+#### 6.7 GitHub Actions への組み込み (自動同期)
+
+GitHub Actions でデプロイ前に Key Vault から取得→`az containerapp secret set`→`az containerapp update` を行う例:
+
+```yaml
+- name: Fetch secrets from Key Vault
+  run: |
+    SLACK_BOT_TOKEN=$(az keyvault secret show --vault-name kv-slackbot-aca --name slack-bot-token --query value -o tsv)
+    SLACK_APP_TOKEN=$(az keyvault secret show --vault-name kv-slackbot-aca --name slack-app-token --query value -o tsv)
+    BOT_USER_ID=$(az keyvault secret show --vault-name kv-slackbot-aca --name bot-user-id --query value -o tsv)
+    az containerapp secret set \
+      --name $CONTAINER_APP_NAME \
+      --resource-group $RESOURCE_GROUP \
+      --secrets \
+        slack-bot-token=$SLACK_BOT_TOKEN \
+        slack-app-token=$SLACK_APP_TOKEN \
+        bot-user-id=$BOT_USER_ID
+    az containerapp update \
+      --name $CONTAINER_APP_NAME \
+      --resource-group $RESOURCE_GROUP \
+      --env-vars \
+        SLACK_BOT_TOKEN=secretref:slack-bot-token \
+        SLACK_APP_TOKEN=secretref:slack-app-token \
+        BOT_USER_ID=secretref:bot-user-id
+```
+
+> **🔁 ローテーション運用**: Slack トークンが更新されたら Key Vault の値を差し替え→次回 CI/CD 実行時に自動反映。即時反映したい場合は手動で同期コマンドを実行。
+
+---
 
 ### Azure Portal を使用する場合
 
