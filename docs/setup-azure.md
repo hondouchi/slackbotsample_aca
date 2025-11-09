@@ -537,7 +537,15 @@ echo $APP_PRINCIPAL_ID
 
 #### 6.4 Key Vault へのアクセス権付与 (RBAC 推奨)
 
-Azure RBAC を利用する場合 (推奨):
+Azure RBAC を利用する場合 (推奨)。用途別に必要権限が異なります:
+
+| 用途                                          | 推奨ロール                | 付与対象                            | 権限概要            |
+| --------------------------------------------- | ------------------------- | ----------------------------------- | ------------------- |
+| ランタイムでシークレットを取得 (読み取りのみ) | Key Vault Secrets User    | Container App の Managed Identity   | get/list (set 不可) |
+| CI/CD でシークレットを同期 (書き込みが必要)   | Key Vault Secrets Officer | GitHub Actions サービスプリンシパル | set/delete/list     |
+| Vault 全体運用管理 (例: キーも扱う)           | Key Vault Administrator   | 運用管理者ユーザー                  | 全権限              |
+
+まずランタイム (読み取り) 用の付与例:
 
 ```bash
 az role assignment create \
@@ -546,7 +554,20 @@ az role assignment create \
   --scope $(az keyvault show --name kv-slackbot-aca --query id -o tsv)
 ```
 
-> **🔐 注意**: 古いアクセスポリシー方式 (`az keyvault set-policy`) は新規導入では非推奨。RBAC ベースの `Key Vault Secrets User` ロールを使うと運用性が向上します。
+次に CI/CD (書き込み) 用サービスプリンシパルに付与する例:
+
+```bash
+# サービスプリンシパルの Object ID を取得 (例: AZURE_CREDENTIALS の appId)
+SP_APP_ID=<SERVICE_PRINCIPAL_APP_ID>
+SP_OBJECT_ID=$(az ad sp show --id $SP_APP_ID --query id -o tsv)
+
+az role assignment create \
+  --assignee $SP_OBJECT_ID \
+  --role "Key Vault Secrets Officer" \
+  --scope $(az keyvault show --name kv-slackbot-aca --query id -o tsv)
+```
+
+> **🔐 注意**: "Secrets User" ロールでは `setSecret` ができないため CI/CD の同期処理は失敗します。書き込みが必要な主体には "Secrets Officer" を割り当ててください。古いアクセスポリシー方式 (`az keyvault set-policy`) は新規導入では非推奨です。
 
 #### 6.5 Key Vault シークレット参照で Container App を更新
 
