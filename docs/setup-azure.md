@@ -789,7 +789,7 @@ az containerapp secret set \
 az containerapp update \
   --name slackbot-app \
   --resource-group rg-slackbot-aca \
-  --env-vars \
+  --set-env-vars \
     SLACK_BOT_TOKEN=secretref:slack-bot-token \
     SLACK_APP_TOKEN=secretref:slack-app-token \
     BOT_USER_ID=secretref:bot-user-id
