@@ -9,6 +9,129 @@
 - [Docker イメージのビルドエラー](#docker-イメージのビルドエラー)
 - [Azure Container Apps のエラー](#azure-container-apps-のエラー)
 - [ローカル開発環境のエラー](#ローカル開発環境のエラー)
+- [Key Vault / シークレット管理関連](#key-vault--シークレット管理関連)
+
+---
+
+## Key Vault / シークレット管理関連
+
+### 症状: Key Vault の値を更新しても Container Apps に反映されない
+
+**背景**: 現行構成は「Key Vault → (CI/手動同期) → Container Apps シークレット」のコピー方式。Key Vault の値変更は自動伝播しません。
+
+**確認ステップ**:
+
+1. Key Vault 上のバージョンを確認
+   ```bash
+   az keyvault secret show --vault-name <KV_NAME> --name slack-bot-token --query "{value:value,version:properties.version}"
+   ```
+2. Container Apps 側のシークレット snapshot を確認
+   ```bash
+   az containerapp show \
+     --name <APP_NAME> \
+     --resource-group <RG> \
+     --query properties.configuration.secrets
+   ```
+3. 期待する値が存在しない → 同期未実施
+
+**解決手順 (同期)**:
+
+```bash
+SLACK_BOT_TOKEN=$(az keyvault secret show --vault-name <KV_NAME> --name slack-bot-token --query value -o tsv)
+SLACK_APP_TOKEN=$(az keyvault secret show --vault-name <KV_NAME> --name slack-app-token --query value -o tsv)
+BOT_USER_ID=$(az keyvault secret show --vault-name <KV_NAME> --name bot-user-id --query value -o tsv)
+
+az containerapp secret set \
+  --name <APP_NAME> \
+  --resource-group <RG> \
+  --secrets \
+    slack-bot-token=$SLACK_BOT_TOKEN \
+    slack-app-token=$SLACK_APP_TOKEN \
+    bot-user-id=$BOT_USER_ID
+
+az containerapp revision restart \
+  --name <APP_NAME> \
+  --resource-group <RG>
+```
+
+**チェックポイント**:
+
+- [ ] Key Vault のロール割り当て: `Key Vault Secrets User` が付与されているか
+- [ ] `az login` / サービスプリンシパルのスコープが RG を含むか
+- [ ] フェデレーション/Manged Identity を使う場合は `az containerapp identity show` で `principalId` を取得済みか
+
+### 症状: `(Forbidden) AKV10032: Invalid permissions` が出る
+
+**原因**: RBAC で十分な権限が無い、または古いアクセスポリシーモデルとの競合。
+
+**対処**:
+
+```bash
+az role assignment list \
+  --assignee <PRINCIPAL_ID> \
+  --scope $(az keyvault show --name <KV_NAME> --query id -o tsv)
+
+# 必要なら再付与
+az role assignment create \
+  --assignee <PRINCIPAL_ID> \
+  --role "Key Vault Secrets User" \
+  --scope $(az keyvault show --name <KV_NAME> --query id -o tsv)
+```
+
+### 症状: GitHub Actions で Key Vault 取得に失敗する
+
+**代表エラー**:
+
+```
+ERROR: (Unauthorized) The user, group or application does not have secrets get permission
+```
+
+**チェック**:
+
+1. `AZURE_CREDENTIALS` のサービスプリンシパルが KV に RBAC 付与されているか
+2. ワークフローで `az account show` を入れてサブスクリプションが期待通りか
+3. Key Vault 名のタイプミスがないか (`az keyvault list -o table` で確認)
+
+**改善例 (ワークフローステップ挿入)**:
+
+```yaml
+- name: Sync secrets from Key Vault (optional)
+  if: success()
+  run: |
+    KV_NAME=kv-slackbot-aca
+    SLACK_BOT_TOKEN=$(az keyvault secret show --vault-name $KV_NAME --name slack-bot-token --query value -o tsv)
+    SLACK_APP_TOKEN=$(az keyvault secret show --vault-name $KV_NAME --name slack-app-token --query value -o tsv)
+    BOT_USER_ID=$(az keyvault secret show --vault-name $KV_NAME --name bot-user-id --query value -o tsv)
+    az containerapp secret set \
+      --name $CONTAINER_APP_NAME \
+      --resource-group $RESOURCE_GROUP \
+      --secrets \
+        slack-bot-token=$SLACK_BOT_TOKEN \
+        slack-app-token=$SLACK_APP_TOKEN \
+        bot-user-id=$BOT_USER_ID
+    az containerapp update \
+      --name $CONTAINER_APP_NAME \
+      --resource-group $RESOURCE_GROUP \
+      --env-vars \
+        SLACK_BOT_TOKEN=secretref:slack-bot-token \
+        SLACK_APP_TOKEN=secretref:slack-app-token \
+        BOT_USER_ID=secretref:bot-user-id
+```
+
+### 症状: ローテーションしたのに古い Slack トークンで認証エラー
+
+**原因**:
+
+- Container App 再起動していない
+- シークレット名を変えてしまい env var 参照が古い
+- Key Vault ではなく直接 `--secrets` で上書きしたが一部 typo
+
+**対処チェックリスト**:
+| 項目 | コマンド | 期待値 |
+|------|----------|--------|
+| 最新シークレット反映 | `az containerapp show --name <APP> -g <RG> --query properties.configuration.secrets` | 値が KV と一致 |
+| リビジョン再起動済み | `az containerapp revision list --name <APP> -g <RG> --query '[].{name:name,active:properties.active}'` | 最新が active |
+| ログ確認 | `az containerapp logs show --name <APP> -g <RG> --tail 50` | `Slack auth test success` |
 
 ---
 

@@ -4,6 +4,24 @@
 
 **Azure CLI** または **Azure Portal** のいずれかの方法で作成できます。各セクションで両方の手順を記載しています。
 
+## 目次
+
+1. [前提条件](#前提条件)
+2. [リソースグループの作成](#1-リソースグループの作成)
+3. [Azure Container Registry (ACR) の作成](#2-azure-container-registry-acr-の作成)
+4. [Virtual Network (VNET) とサブネットの作成](#3-virtual-network-vnet-の作成)
+5. [Log Analytics Workspace の作成](#4-log-analytics-workspace-の作成)
+6. [Container Apps Environment の作成](#5-container-apps-environment-の作成)
+7. [Azure Container Apps の作成 (シークレット管理方式の選択を含む)](#6-azure-container-apps-の作成)
+
+- [シークレット管理方式の選択](#シークレット管理方式の選択)
+- [Key Vault を使ったシークレット管理](#key-vault-を使ったシークレット管理-推奨パターン)
+
+8. [環境変数/シークレットの更新](#7-環境変数の更新-後から変更する場合)
+9. [デプロイの確認](#8-デプロイの確認)
+10. [追加のセキュリティ / ネットワーク設定](#9-追加のセキュリティ設定)
+11. [トラブルシューティング](#トラブルシューティング)
+
 ## 前提条件
 
 ### Azure CLI を使用する場合
