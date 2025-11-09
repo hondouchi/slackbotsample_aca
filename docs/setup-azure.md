@@ -9,10 +9,11 @@
 1. [前提条件](#前提条件)
 2. [リソースグループの作成](#1-リソースグループの作成)
 3. [Azure Container Registry (ACR) の作成](#2-azure-container-registry-acr-の作成)
-4. [Virtual Network (VNET) とサブネットの作成](#3-virtual-network-vnet-の作成)
-5. [Log Analytics Workspace の作成](#4-log-analytics-workspace-の作成)
-6. [Container Apps Environment の作成](#5-container-apps-environment-の作成)
-7. [Container Apps の作成 (Key Vault 統合)](#6-azure-container-apps-の作成key-vault-統合)
+4. [初期 Docker イメージのビルドとプッシュ](#25-初期-docker-イメージのビルドとプッシュ)
+5. [Virtual Network (VNET) とサブネットの作成](#3-virtual-network-vnet-の作成)
+6. [Log Analytics Workspace の作成](#4-log-analytics-workspace-の作成)
+7. [Container Apps Environment の作成](#5-container-apps-environment-の作成)
+8. [Container Apps の作成 (Key Vault 統合)](#6-azure-container-apps-の作成key-vault-統合)
    - 6.1 Key Vault の作成
    - 6.2 Key Vault にシークレットを登録
    - 6.3 Container App の作成
@@ -20,10 +21,10 @@
    - 6.5 Key Vault アクセス権の付与
    - 6.6 シークレット同期
    - 6.7 アプリコードから直接取得 (オプション)
-8. [シークレットの更新・ローテーション](#7-シークレットの更新ローテーション)
-9. [デプロイの確認](#8-デプロイの確認)
-10. [追加のセキュリティ / ネットワーク設定](#9-追加のセキュリティ設定)
-11. [トラブルシューティング](#トラブルシューティング)
+9. [シークレットの更新・ローテーション](#7-シークレットの更新ローテーション)
+10. [デプロイの確認](#8-デプロイの確認)
+11. [追加のセキュリティ / ネットワーク設定](#9-追加のセキュリティ設定)
+12. [トラブルシューティング](#トラブルシューティング)
 
 ## 前提条件
 
@@ -165,6 +166,143 @@ az acr credential show \
 2. 左メニューから **アクセス キー** を選択
 3. **管理者ユーザー** を **有効** に設定
 4. **ユーザー名** と **パスワード** を保存 (GitHub Actions で使用)
+
+---
+
+## 2.5. 初期 Docker イメージのビルドとプッシュ
+
+Container App を作成する前に、ACR に初期イメージを配置する必要があります。ここでは開発環境から直接ビルド・プッシュする手順を説明します。
+
+> **📝 補足**: 本番運用では GitHub Actions で自動ビルド・デプロイしますが、初回の動作確認のために手動でイメージをプッシュします。
+
+### 前提条件
+
+- Docker がローカル環境にインストールされていること
+- プロジェクトのルートディレクトリに `Dockerfile` と `package.json` が存在すること
+
+### Azure CLI を使用する場合
+
+#### 1. ACR にログイン
+
+**方法 A: Azure AD 認証を使用 (推奨)**
+
+```bash
+az acr login --name <YOUR_ACR_NAME>
+```
+
+この方法は Azure CLI の認証情報を使用するため、パスワード管理が不要です。
+
+**方法 B: 管理者認証情報を使用**
+
+```bash
+# 管理者パスワードを取得
+ACR_PASSWORD=$(az acr credential show --name <YOUR_ACR_NAME> --query "passwords[0].value" -o tsv)
+
+# Docker で ACR にログイン
+docker login <YOUR_ACR_NAME>.azurecr.io \
+  --username <YOUR_ACR_NAME> \
+  --password $ACR_PASSWORD
+```
+
+#### 2. Docker イメージのビルド
+
+プロジェクトのルートディレクトリで実行:
+
+```bash
+docker build -t slackbot-sample:1 .
+```
+
+#### 3. イメージにタグを付与
+
+```bash
+docker tag slackbot-sample:1 <YOUR_ACR_NAME>.azurecr.io/slackbot-sample:1
+```
+
+#### 4. ACR にプッシュ
+
+```bash
+docker push <YOUR_ACR_NAME>.azurecr.io/slackbot-sample:1
+```
+
+#### 5. イメージが登録されたか確認
+
+```bash
+az acr repository show \
+  --name <YOUR_ACR_NAME> \
+  --repository slackbot-sample
+```
+
+または、イメージのタグ一覧を表示:
+
+```bash
+az acr repository show-tags \
+  --name <YOUR_ACR_NAME> \
+  --repository slackbot-sample \
+  --output table
+```
+
+**期待される出力**:
+
+```
+Result
+--------
+1
+```
+
+### Azure Portal を使用する場合
+
+Portal では直接イメージをプッシュできないため、CLI の手順 (上記) を実行してください。プッシュ後、Portal で確認できます。
+
+#### Portal でイメージを確認
+
+1. Azure Portal で作成した ACR を開く
+2. 左メニューから **リポジトリ** を選択
+3. `slackbot-sample` リポジトリをクリック
+4. タグ `1` が表示されることを確認
+
+### トラブルシューティング
+
+#### Docker ログインエラー
+
+```
+Error response from daemon: login attempt failed with status: 401 Unauthorized
+```
+
+**原因**: 管理者ユーザーが無効、またはパスワードが間違っている
+
+**解決策**:
+
+1. Portal で ACR の **アクセス キー** → **管理者ユーザー** が **有効** になっているか確認
+2. パスワードを再取得して再試行
+
+#### ビルドエラー
+
+```
+ERROR [internal] load metadata for docker.io/library/node:18-alpine
+```
+
+**原因**: ネットワーク接続の問題、または Dockerfile の FROM イメージが見つからない
+
+**解決策**:
+
+1. インターネット接続を確認
+2. `Dockerfile` の `FROM` ディレクティブを確認 (例: `FROM node:18-alpine`)
+
+#### プッシュ権限エラー
+
+```
+unauthorized: authentication required
+```
+
+**原因**: ACR にログインしていない、または認証が切れている
+
+**解決策**:
+
+```bash
+az acr login --name <YOUR_ACR_NAME>
+```
+
+を再実行してから、プッシュをリトライ
 
 ---
 
@@ -545,10 +683,9 @@ az containerapp create \
 | `--min-replicas` / `--max-replicas` | レプリカ数 (1 固定を推奨)                       | `1`                                            |
 | `--cpu` / `--memory`                | リソース割り当て                                | `0.5` / `1.0Gi`                                |
 
-> **⚠️ 注意**:
+> **📝 前提条件**: このコマンドを実行する前に、[2.5 初期 Docker イメージのビルドとプッシュ](#25-初期-docker-イメージのビルドとプッシュ) を完了し、ACR にイメージが存在することを確認してください。
 >
-> - 初回は Docker イメージが ACR に存在しない可能性があります。その場合は GitHub Actions で初回デプロイ後に自動更新されます。
-> - この時点ではシークレット (`--secrets`) や環境変数 (`--env-vars`) は設定していません。後の手順で Key Vault から同期します。
+> **⚠️ 注意**: この時点ではシークレット (`--secrets`) や環境変数 (`--env-vars`) は設定していません。後の手順 (6.6) で Key Vault から同期します。
 
 ##### Azure Portal を使用する場合
 
@@ -691,44 +828,6 @@ loadSecrets().then((secrets) => {
 
 > **📝 補足**: この方式では `package.json` に `@azure/identity` と `@azure/keyvault-secrets` を追加し、アプリケーションコードを修正する必要があります。CLI 同期方式が運用上シンプルなため、本ガイドでは CLI 同期を推奨します。
 
----
-
-### Azure Portal を使用する場合 (Key Vault 統合)
-
-Portal 経由で Container App を作成する場合も、上記の CLI 手順に準じて以下の流れで実施します:
-
-1. **Key Vault を作成** (Portal の Key Vault サービスから)
-2. **アクセスポリシーまたは RBAC で自分に Secrets Officer 権限を付与**
-3. **Key Vault にシークレットを登録** (Portal の Key Vault → シークレット)
-4. **Container App を作成** (下記手順)
-5. **Managed Identity を有効化** (Container App → ID)
-6. **Managed Identity に Key Vault Secrets User 権限を付与** (Key Vault → アクセス制御)
-7. **Container App のシークレットを手動更新** (CLI または Portal)
-
-#### Container App 作成 (Portal)
-
-```yaml
-- name: Fetch secrets from Key Vault
-  run: |
-    SLACK_BOT_TOKEN=$(az keyvault secret show --vault-name kv-slackbot-aca --name slack-bot-token --query value -o tsv)
-    SLACK_APP_TOKEN=$(az keyvault secret show --vault-name kv-slackbot-aca --name slack-app-token --query value -o tsv)
-    BOT_USER_ID=$(az keyvault secret show --vault-name kv-slackbot-aca --name bot-user-id --query value -o tsv)
-    az containerapp secret set \
-      --name $CONTAINER_APP_NAME \
-      --resource-group $RESOURCE_GROUP \
-      --secrets \
-        slack-bot-token=$SLACK_BOT_TOKEN \
-        slack-app-token=$SLACK_APP_TOKEN \
-        bot-user-id=$BOT_USER_ID
-    az containerapp update \
-      --name $CONTAINER_APP_NAME \
-      --resource-group $RESOURCE_GROUP \
-      --env-vars \
-        SLACK_BOT_TOKEN=secretref:slack-bot-token \
-        SLACK_APP_TOKEN=secretref:slack-app-token \
-        BOT_USER_ID=secretref:bot-user-id
-```
-
 > **🔁 ローテーション運用**: Slack トークンが更新されたら Key Vault の値を差し替え → 次回 CI/CD 実行時に自動反映。即時反映したい場合は手動で同期コマンドを実行。
 
 > **🔐 CI/CD でのシークレット同期**: GitHub Actions から Key Vault へアクセスする場合は、サービスプリンシパルに `Key Vault Secrets Officer` ロールを付与する必要があります。詳細は [GitHub の設定](setup-github.md) を参照してください。
@@ -739,13 +838,19 @@ Portal 経由で Container App を作成する場合も、上記の CLI 手順�
 
 Portal 経由で Container App を作成する場合も、上記の CLI 手順に準じて以下の流れで実施します:
 
-1. **Key Vault を作成** (Portal の Key Vault サービスから)
-2. **アクセスポリシーまたは RBAC で自分に Secrets Officer 権限を付与**
-3. **Key Vault にシークレットを登録** (Portal の Key Vault → シークレット)
-4. **Container App を作成** (下記手順)
-5. **Managed Identity を有効化** (Container App → ID)
-6. **Managed Identity に Key Vault Secrets User 権限を付与** (Key Vault → アクセス制御)
-7. **Container App のシークレットを手動更新** (CLI 推奨、または Portal)
+1. **[2.5 初期イメージのビルドとプッシュ](#25-初期-docker-イメージのビルドとプッシュ)** を完了 (CLI で実施)
+2. **Key Vault を作成** (Portal の Key Vault サービスから)
+3. **アクセスポリシーまたは RBAC で自分に Secrets Officer 権限を付与**
+4. **Key Vault にシークレットを登録** (Portal の Key Vault → シークレット)
+5. **Container App を作成** (下記手順)
+6. **Managed Identity を有効化** (Container App → ID)
+7. **Managed Identity に Key Vault Secrets User 権限を付与** (Key Vault → アクセス制御)
+8. **Container App のシークレットを同期** (CLI で実施、または Portal で手動設定)
+9. **Key Vault にシークレットを登録** (Portal の Key Vault → シークレット)
+10. **Container App を作成** (下記手順)
+11. **Managed Identity を有効化** (Container App → ID)
+12. **Managed Identity に Key Vault Secrets User 権限を付与** (Key Vault → アクセス制御)
+13. **Container App のシークレットを手動更新** (CLI 推奨、または Portal)
 
 #### Container App 作成 (Portal)
 
@@ -794,13 +899,6 @@ Portal 経由で Container App を作成する場合も、上記の CLI 手順�
 #### シークレット同期
 
 CLI で Key Vault から取得して Container App に反映 (上記 6.6 の CLI コマンドを実行)。
-
-#### 確認と作成
-
-1. **確認および作成** タブで設定を確認
-2. **作成** をクリック
-
-> **⚠️ 注意**: 初回は Docker イメージが ACR に存在しないため、エラーになる可能性があります。GitHub Actions で初回デプロイ後に自動更新されます。
 
 ---
 
