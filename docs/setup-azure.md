@@ -510,6 +510,67 @@ az keyvault create \
 
 #### 6.2 Key Vault にシークレットを登録
 
+##### 事前準備 (必須): シークレット書き込み権限の確認と付与
+
+以下の `az keyvault secret set` を実行するには、呼び出し主体 (あなた自身のユーザー、または CI/CD 用サービスプリンシパル) が Key Vault に対して「書き込み」権限を持っている必要があります。`Key Vault Secrets User` ロールは読み取り専用のためシークレット登録は失敗します。まず次の手順を完了してください。
+
+1. サインイン中ユーザーの Object ID を取得:
+
+```bash
+USER_OBJECT_ID=$(az ad signed-in-user show --query id -o tsv)
+echo $USER_OBJECT_ID
+```
+
+2. Key Vault のリソース ID を取得:
+
+```bash
+KV_ID=$(az keyvault show --name kv-slackbot-aca --query id -o tsv)
+echo $KV_ID
+```
+
+3. 既存ロール割り当てを確認 (Secrets Officer か Administrator があれば書き込み可能):
+
+```bash
+az role assignment list \
+  --assignee $USER_OBJECT_ID \
+  --scope $KV_ID \
+  --query "[].roleDefinitionName" -o tsv
+```
+
+4. 権限が無い場合は `Key Vault Secrets Officer` を付与:
+
+```bash
+az role assignment create \
+  --assignee $USER_OBJECT_ID \
+  --role "Key Vault Secrets Officer" \
+  --scope $KV_ID
+```
+
+5. 伝播待ち (1〜5 分程度)。再度手順 3 のコマンドでロール名を確認してください。
+6. CI/CD 用サービスプリンシパルも書き込みが必要な場合は Object ID を取得し同様に付与:
+
+```bash
+SP_APP_ID=<SERVICE_PRINCIPAL_APP_ID>   # 例: GitHub Actions の AZURE_CLIENT_ID
+SP_OBJECT_ID=$(az ad sp show --id $SP_APP_ID --query id -o tsv)
+az role assignment create \
+  --assignee $SP_OBJECT_ID \
+  --role "Key Vault Secrets Officer" \
+  --scope $KV_ID
+```
+
+> **⚠️ Forbidden エラー例 (権限不足)**:
+>
+> ```
+> (Forbidden) Caller is not authorized.
+>   Code: Forbidden
+>   Message: The user, group or application 'xxxx-....' does not have secrets set permission on key vault 'kv-slackbot-aca'.
+>   Inner error: { "code": "ForbiddenByRbac" }
+> ```
+>
+> このメッセージが表示された場合はロール未付与または未伝播です。数分待って再試行し、解消しない場合は手順 3〜4 を再確認してください。
+
+準備ができたらシークレットを登録します:
+
 ```bash
 az keyvault secret set --vault-name kv-slackbot-aca --name slack-bot-token --value <SLACK_BOT_TOKEN>
 az keyvault secret set --vault-name kv-slackbot-aca --name slack-app-token --value <SLACK_APP_TOKEN>
