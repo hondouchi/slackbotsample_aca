@@ -42,10 +42,18 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Set Azure subscription context
+        run: |
+          echo "=== Setting Azure Subscription ==="
+          az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          az account show --query "{SubscriptionId:id, SubscriptionName:name, TenantId:tenantId}" -o table
+
       - name: Verify ACR access
         run: |
-          echo "Verifying ACR: ${{ env.ACR_NAME }}"
-          az acr show --name ${{ env.ACR_NAME }} --query "{Name:name, LoginServer:loginServer}" -o table
+          echo "=== Verifying ACR Access ==="
+          echo "ACR Name: ${{ env.ACR_NAME }}"
+          echo "Resource Group: ${{ env.RESOURCE_GROUP }}"
+          az acr show --name ${{ env.ACR_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} --query "{Name:name, LoginServer:loginServer, ResourceGroup:resourceGroup}" -o table
 
       - name: Get next version tag from ACR
         id: version
