@@ -3,8 +3,9 @@ name: Deploy to Azure Container Apps (Production)
 on:
   push:
     branches:
-      - main  # 本番デプロイは main ブランチのみ
+      - main # 本番デプロイは main ブランチのみ
     paths:
+      # アプリケーションコードの変更時のみデプロイ実行
       - 'app.js'
       - 'package.json'
       - 'package-lock.json'
@@ -13,14 +14,7 @@ on:
       - 'src/**'
       - 'lib/**'
       - 'config/**'
-    paths-ignore:
-      - 'README.md'
-      - 'docs/**'
-      - 'terraform/**'
-      - '*.md'
-      - '.gitignore'
-      - 'LICENSE'
-      - '.github/**'  # ワークフローファイル自体の変更では実行しない
+      # ドキュメント、インフラコード、ワークフローファイルは除外
 
 permissions:
   id-token: write # Federated Identity 用
