@@ -308,7 +308,41 @@ Error: Login failed with Error: Unable to authenticate
      --resource-group hondouchi-slackbot-aca
    ```
 
-#### 2. ACR 認証エラー
+#### 2. ACR 権限エラー (GitHub Actions)
+
+**エラーメッセージ**:
+
+```
+ERROR: (AuthorizationFailed) The client does not have authorization to perform action
+'Microsoft.ContainerRegistry/registries/read' over scope '/subscriptions/.../slackbotacaacr'
+```
+
+**原因**: サービスプリンシパルに ACR の読み取り権限 (Reader) がない
+
+**解決方法**:
+
+1. サービスプリンシパルの権限を確認
+
+   ```bash
+   az role assignment list \
+     --assignee <SERVICE_PRINCIPAL_APP_ID> \
+     --scope /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RG_NAME>/providers/Microsoft.ContainerRegistry/registries/<ACR_NAME>
+   ```
+
+2. Reader ロールを追加
+
+   ```bash
+   az role assignment create \
+     --assignee <SERVICE_PRINCIPAL_APP_ID> \
+     --role Reader \
+     --scope /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RG_NAME>/providers/Microsoft.ContainerRegistry/registries/<ACR_NAME>
+   ```
+
+> **💡 重要**: GitHub Actions から ACR にアクセスするには、`AcrPush` だけでなく `Reader` ロールも必要です。`az acr show` などのコマンドで ACR の情報を読み取るために必要となります。
+
+詳細は [GitHub Actions による CI/CD 設定](setup-cicd-app.md) の「ACR へのアクセス権」セクションを参照してください。
+
+#### 3. ACR 認証エラー (管理者ユーザー)
 
 **エラーメッセージ**:
 
@@ -316,7 +350,7 @@ Error: Login failed with Error: Unable to authenticate
 Error response from daemon: Get https://slackbotaca.azurecr.io/v2/: unauthorized
 ```
 
-**原因**: ACR の認証情報が正しくない
+**原因**: ACR の管理者ユーザーの認証情報が正しくない
 
 **解決方法**:
 
@@ -347,7 +381,7 @@ Error response from daemon: Get https://slackbotaca.azurecr.io/v2/: unauthorized
    - `ACR_USERNAME`: username の値
    - `ACR_PASSWORD`: passwords[0].value の値
 
-#### 3. Container Apps 更新エラー
+#### 4. Container Apps 更新エラー
 
 **エラーメッセージ**:
 

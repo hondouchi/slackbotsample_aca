@@ -76,7 +76,7 @@ app.message(async ({ message, say }) => {
     // 通常のメッセージ処理
     try {
       await say({
-        text: `Botです。メッセージを受け取りました!2\n内容: ${content}`,
+        text: `Botです。メッセージを受け取りました!\n内容: ${content}`,
         thread_ts: threadId,
       });
     } catch (e) {

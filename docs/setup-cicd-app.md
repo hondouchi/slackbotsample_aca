@@ -131,7 +131,15 @@ az role assignment create \
   --assignee $APP_ID \
   --role AcrPush \
   --scope $ACR_ID
+
+# Reader ロールを付与 (ACR情報の読み取り用)
+az role assignment create \
+  --assignee $APP_ID \
+  --role Reader \
+  --scope $ACR_ID
 ```
+
+> **💡 重要**: `AcrPush` だけでは ACR の情報読み取りができません。`az acr show` などのコマンドを実行するには `Reader` ロールも必要です。
 
 #### Container Apps へのアクセス権
 
@@ -160,6 +168,7 @@ az role assignment create \
 > **📝 権限の説明**:
 >
 > - **AcrPush**: ACR へのイメージ push 権限 (pull も含む)
+> - **Reader**: ACR リソース情報の読み取り権限 (`az acr show` などに必要)
 > - **Container Apps Contributor**: Container Apps の更新権限
 > - **Key Vault Secrets Officer**: シークレットの作成・更新・削除権限
 
@@ -636,7 +645,36 @@ Error: Login failed with Error: AADSTS70021: No matching federated identity reco
    # セクション 1.2 の手順で再作成
    ```
 
-### 5.2 ACR Push エラー
+### 5.2 ACR アクセスエラー
+
+#### 5.2.1 ACR 情報読み取りエラー
+
+**エラーメッセージ**:
+
+```
+Error: (AuthorizationFailed) The client does not have authorization to perform action
+'Microsoft.ContainerRegistry/registries/read'
+```
+
+**原因**: サービスプリンシパルに `Reader` ロールが付与されていない
+
+**解決方法**:
+
+```bash
+# ロール割り当ての確認
+az role assignment list \
+  --assignee $APP_ID \
+  --scope $ACR_ID \
+  --query "[].roleDefinitionName" -o tsv
+
+# Reader ロールが表示されない場合は付与
+az role assignment create \
+  --assignee $APP_ID \
+  --role Reader \
+  --scope $ACR_ID
+```
+
+#### 5.2.2 ACR Push エラー
 
 **エラーメッセージ**:
 
@@ -649,12 +687,6 @@ Error: denied: requested access to the resource is denied
 **解決方法**:
 
 ```bash
-# ロール割り当ての確認
-az role assignment list \
-  --assignee $APP_ID \
-  --scope $ACR_ID \
-  --query "[].roleDefinitionName" -o tsv
-
 # AcrPush ロールが表示されない場合は付与
 az role assignment create \
   --assignee $APP_ID \
@@ -735,10 +767,10 @@ az role assignment create \
 
 各コンポーネントに必要最小限の権限のみを付与:
 
-| コンポーネント                  | 権限                                                           | 理由                                               |
-| ------------------------------- | -------------------------------------------------------------- | -------------------------------------------------- |
-| GitHub Actions SP               | AcrPush, Container Apps Contributor, Key Vault Secrets Officer | イメージ push、デプロイ、シークレット更新のみ      |
-| Container Apps Managed Identity | AcrPull, Key Vault Secrets User                                | イメージ pull、シークレット参照のみ (書き込み不可) |
+| コンポーネント                  | 権限                                                                   | 理由                                                        |
+| ------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------- |
+| GitHub Actions SP               | Reader, AcrPush, Container Apps Contributor, Key Vault Secrets Officer | ACR 情報読み取り、イメージ push、デプロイ、シークレット更新 |
+| Container Apps Managed Identity | AcrPull, Key Vault Secrets User                                        | イメージ pull、シークレット参照のみ (書き込み不可)          |
 
 ### 6.3 Key Vault によるシークレット管理
 
