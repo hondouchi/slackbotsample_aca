@@ -27,6 +27,7 @@
     - 9.3 プライベートエンドポイント設定
     - 9.4 ネットワークセキュリティグループ (NSG)
     - 9.5 セキュリティチェックリスト
+    - 9.6 ヘルスプローブ設定
 11. [リソース一覧](#10-リソース一覧)
 12. [コスト管理](#11-コスト管理)
 13. [トラブルシューティング](#12-トラブルシューティング)
@@ -561,7 +562,7 @@ az containerapp env create \
   --resource-group rg-slackbot-aca \
   --location japaneast \
   --infrastructure-subnet-resource-id $SUBNET_ID \
-  --internal-only false \
+  --internal-only true \
   --logs-workspace-id $WORKSPACE_ID \
   --logs-workspace-key $WORKSPACE_KEY
 ```
@@ -609,11 +610,11 @@ az containerapp env create \
 - `--resource-group`: リソースグループ名
 - `--location`: リージョン
 - `--infrastructure-subnet-resource-id`: Container Apps が使用するサブネットの ID
-- `--internal-only`: 内部専用環境にするか (`false` = Slack からの接続を許可)
+- `--internal-only`: 内部専用環境にするか (`true` = パブリックインターネットからの分離)
 - `--logs-workspace-id`: Log Analytics Workspace の Customer ID
 - `--logs-workspace-key`: Log Analytics Workspace の共有キー
 
-> **📝 Note**: Socket Mode では外部からの WebSocket 接続が必要なため、`--internal-only` は `false` に設定します。
+> **📝 Note**: Socket Mode では **Slack へのアウトバウンド WebSocket 接続**のみ使用し、インバウンド接続は不要です。そのため `--internal-only true` で環境を閉域化できます。`--ingress internal` と併用することで、パブリックインターネットからのアクセスを完全に遮断します。
 
 ---
 
@@ -1168,6 +1169,132 @@ az network vnet subnet update \
 - [ ] ACR の自動保持ポリシーを有効化
 - [ ] データベースなどの Azure リソースがプライベートエンドポイント経由で接続されている
 - [ ] NSG で不要なトラフィックがブロックされている
+
+### 9.6 ヘルスプローブ設定
+
+Container App の正常性を監視し、異常なコンテナーを自動的に再起動するためのヘルスプローブを設定します。
+
+#### Microsoft 推奨設定
+
+| プローブ種別  | 用途                                       | 推奨設定                                                                                                                      |
+| ------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Liveness**  | 失敗状態のコンテナーを検出して再起動       | `failureThreshold: 3`<br/>`periodSeconds: 10`<br/>`timeoutSeconds: 5`<br/>`successThreshold: 1`<br/>`initialDelaySeconds: 10` |
+| **Readiness** | 正常なコンテナーのみがトラフィックを受信   | `failureThreshold: 3`<br/>`periodSeconds: 5`<br/>`timeoutSeconds: 3`<br/>`successThreshold: 1`<br/>`initialDelaySeconds: 5`   |
+| **Startup**   | 起動に時間がかかるアプリの初期化完了を検出 | `failureThreshold: 30`<br/>`periodSeconds: 10`<br/>`timeoutSeconds: 3`                                                        |
+
+#### アプリケーションへの実装
+
+**1. Node.js でヘルスエンドポイントを追加**:
+
+```javascript
+// app.js または index.js
+const express = require('express');
+const app = express();
+
+// ヘルスチェックエンドポイント
+app.get('/health', (req, res) => {
+  // Slack Bot の接続状態などをチェック
+  const isHealthy = checkSlackConnection(); // 実装に応じてカスタマイズ
+
+  if (isHealthy) {
+    res
+      .status(200)
+      .json({ status: 'healthy', timestamp: new Date().toISOString() });
+  } else {
+    res
+      .status(503)
+      .json({ status: 'unhealthy', timestamp: new Date().toISOString() });
+  }
+});
+
+// Readiness チェック（起動完了を示す）
+app.get('/ready', (req, res) => {
+  res.status(200).json({ status: 'ready' });
+});
+
+app.listen(3000, () => {
+  console.log('Health check endpoints available at /health and /ready');
+});
+```
+
+**2. Container App にプローブを設定**:
+
+```bash
+az containerapp update \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --set-env-vars "LIVENESS_PROBE_PATH=/health" \
+  --set-env-vars "READINESS_PROBE_PATH=/ready"
+```
+
+> **📝 Note**: Azure Portal または ARM テンプレートでより詳細なプローブ設定が可能です。CLI では基本的な設定のみサポートされています。
+
+#### ARM テンプレート/Bicep での詳細設定例
+
+```bicep
+resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
+  name: 'slackbot-app'
+  properties: {
+    template: {
+      containers: [{
+        name: 'slackbot'
+        image: 'myacr.azurecr.io/slackbot-sample:1'
+        probes: [
+          {
+            type: 'Liveness'
+            httpGet: {
+              path: '/health'
+              port: 3000
+            }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          }
+          {
+            type: 'Readiness'
+            httpGet: {
+              path: '/ready'
+              port: 3000
+            }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          }
+        ]
+      }]
+    }
+  }
+}
+```
+
+#### 動作確認
+
+```bash
+# プローブの設定を確認
+az containerapp show \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --query "properties.template.containers[0].probes" \
+  --output json
+
+# コンテナーの再起動履歴を確認（Liveness プローブ失敗時）
+az containerapp revision list \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --query "[].{Name:name, Active:properties.active, Replicas:properties.replicas}" \
+  --output table
+```
+
+> **💡 ベストプラクティス**:
+>
+> - Socket Mode アプリでは、Slack WebSocket 接続の状態をヘルスチェックに含める
+> - `/health` エンドポイントは軽量に保ち、データベースなど外部依存の詳細チェックは避ける
+> - Readiness プローブは起動完了を示すシンプルなチェックに留める
+> - Startup プローブは起動に 30 秒以上かかる場合のみ設定
 
 ---
 
