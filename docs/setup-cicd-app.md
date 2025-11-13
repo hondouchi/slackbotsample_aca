@@ -68,11 +68,11 @@ GitHub Actions が Azure にアクセスするための App Registration を作�
 
 ```bash
 # 変数の設定
-APP_NAME="github-actions-slackbotaca"
+APP_NAME="gha-slackbotsample-aca-cli"
 REPO_OWNER="hondouchi"
 REPO_NAME="slackbotsample_aca"
 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-RESOURCE_GROUP="rg-slackbot-aca"
+RESOURCE_GROUP="rg-slackbot-aca-cli"
 
 # App Registration の作成
 APP_ID=$(az ad app create \
@@ -123,7 +123,7 @@ GitHub Actions に必要な最小権限を付与します。
 
 ```bash
 # ACR のリソース ID を取得
-ACR_NAME="slackbotaca"
+ACR_NAME="slackbotacaacr"
 ACR_ID=$(az acr show --name $ACR_NAME --query id -o tsv)
 
 # サービスプリンシパルに AcrPush ロールを付与
@@ -147,7 +147,7 @@ az role assignment create \
 
 ```bash
 # Key Vault のリソース ID を取得
-KV_NAME="kv-slackbot-aca"
+KV_NAME="kv-slackbot-aca-cli"
 KV_ID=$(az keyvault show --name $KV_NAME --query id -o tsv)
 
 # Key Vault Secrets Officer ロールを付与 (シークレット更新用)
@@ -268,6 +268,8 @@ GitHub リポジトリにシークレットを追加します。
 
 `.github/workflows/deploy-production.yml` を作成します。
 
+> **💡 トリガー条件の最適化**: このワークフローは `paths` と `paths-ignore` を使用して、アプリケーションコードの変更時のみデプロイを実行します。ドキュメントやインフラコードの変更では自動デプロイされないため、不要なデプロイを防ぎ、コスト削減と CI/CD 効率化を実現します。
+
 ```yaml
 name: Deploy to Azure Container Apps (Production)
 
@@ -275,6 +277,25 @@ on:
   push:
     branches:
       - main
+    paths:
+      # アプリケーションコードの変更時のみデプロイ
+      - 'app.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'src/**'
+      - 'lib/**'
+      - 'config/**'
+      - '.github/workflows/deploy-production.yml'
+    paths-ignore:
+      # ドキュメントやインフラコードの変更は除外
+      - 'README.md'
+      - 'docs/**'
+      - 'terraform/**'
+      - '*.md'
+      - '.gitignore'
+      - 'LICENSE'
 
 permissions:
   id-token: write # Federated Identity 用
@@ -285,11 +306,11 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      ACR_NAME: slackbotaca
+      ACR_NAME: slackbotacaacr
       IMAGE_NAME: slackbot-sample
-      CONTAINER_APP_NAME: slackbot-acasample
-      RESOURCE_GROUP: rg-slackbot-aca
-      KEY_VAULT_NAME: kv-slackbot-aca
+      CONTAINER_APP_NAME: slackbot-sample-app
+      RESOURCE_GROUP: rg-slackbot-aca-cli
+      KEY_VAULT_NAME: kv-slackbot-aca-cli
 
     steps:
       - name: Checkout repository
@@ -377,6 +398,23 @@ on:
   push:
     branches:
       - develop
+    paths:
+      - 'app.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'src/**'
+      - 'lib/**'
+      - 'config/**'
+      - '.github/workflows/deploy-develop.yml'
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - 'terraform/**'
+      - '*.md'
+      - '.gitignore'
+      - 'LICENSE'
 
 permissions:
   id-token: write
@@ -387,11 +425,11 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      ACR_NAME: slackbotaca
+      ACR_NAME: slackbotacaacr
       IMAGE_NAME: slackbot-sample
-      CONTAINER_APP_NAME: slackbot-acasample-dev
-      RESOURCE_GROUP: rg-slackbot-aca-dev
-      KEY_VAULT_NAME: kv-slackbot-aca-dev
+      CONTAINER_APP_NAME: slackbot-sample-app-dev
+      RESOURCE_GROUP: rg-slackbot-aca-cli-dev
+      KEY_VAULT_NAME: kv-slackbot-aca-cli-dev
 
     steps:
       # 本番環境と同じステップ (環境変数のみ変更)
@@ -414,60 +452,150 @@ jobs:
 
 ### 4.1 初回デプロイの実行
 
-1. **ワークフローファイルをリポジトリに追加**
-
-   ```bash
-   cd /path/to/slackbotsample_aca
-   git add .github/workflows/deploy-production.yml
-   git commit -m "ci: GitHub Actions CI/CD with Federated Identity"
-   git push origin main
-   ```
-
-2. **GitHub Actions の実行確認**
-
-   - GitHub リポジトリの **Actions** タブを開く
-   - 「Deploy to Azure Container Apps (Production)」ワークフローが実行されていることを確認
-   - すべてのステップが緑色のチェックマークになれば成功
-
-3. **デプロイされたバージョンの確認**
-
-   ```bash
-   az containerapp show \
-     --name slackbot-acasample \
-     --resource-group rg-slackbot-aca \
-     --query "properties.template.containers[0].image" \
-     --output tsv
-   ```
-
-   **期待される出力**:
-
-   ```
-   slackbotaca.azurecr.io/slackbot-sample:v1
-   ```
-
-### 4.2 Container Apps のログ確認
+#### 1. フィーチャーブランチでワークフローファイルを作成
 
 ```bash
+# プロジェクトのルートディレクトリに移動
+cd <your-project-directory>
+
+# フィーチャーブランチを作成
+git checkout -b feature/setup-cicd
+
+# ワークフローファイルを追加
+git add .github/workflows/deploy-production.yml
+git commit -m "ci: GitHub Actions CI/CD with Federated Identity"
+git push origin feature/setup-cicd
+```
+
+> **💡 ヒント**: `<your-project-directory>` はプロジェクトをクローンした場所（例: `~/projects/slackbotsample_aca`）に置き換えてください。
+
+#### 2. プルリクエストの作成とマージ
+
+1. GitHub リポジトリ (`https://github.com/hondouchi/slackbotsample_aca`) にアクセス
+2. **Pull requests** タブをクリック
+3. **New pull request** をクリック
+4. `feature/setup-cicd` → `main` のプルリクエストを作成
+   - **Title**: `ci: GitHub Actions CI/CD with Federated Identity`
+   - **Description**: セクション 1〜3 で設定した内容を記載
+5. レビュー後、**Merge pull request** をクリックして `main` ブランチにマージ
+
+#### 3. GitHub Actions の実行確認
+
+1. **Actions タブで実行状況を確認**
+
+   - GitHub リポジトリの **Actions** タブを開く
+   - 「Deploy to Azure Container Apps (Production)」ワークフローが自動実行されていることを確認
+   - すべてのステップが緑色のチェックマークになれば成功
+
+   > **📝 注意**: ワークフローファイル自体の変更なので初回は実行されます。2 回目以降は `app.js`、`package.json`、`Dockerfile` などアプリケーションコードの変更時のみ実行されます。
+
+2. **ワークフロー実行ログの確認**
+
+   - 実行中のワークフローをクリック
+   - 各ステップの詳細ログを確認
+   - エラーが発生した場合は、セクション 5 のトラブルシューティングを参照
+
+#### 4. デプロイされたバージョンの確認
+
+```bash
+az containerapp show \
+  --name slackbot-sample-app \
+  --resource-group rg-slackbot-aca-cli \
+  --query "properties.template.containers[0].image" \
+  --output tsv
+```
+
+**期待される出力**:
+
+```
+slackbotacaacr.azurecr.io/slackbot-sample:v1
+```
+
+---
+
+### 4.2 通常のアプリケーション変更とデプロイフロー
+
+2 回目以降のアプリケーション変更時の推奨フローです。
+
+#### 1. フィーチャーブランチで開発
+
+```bash
+# プロジェクトのルートディレクトリに移動
+cd <your-project-directory>
+
+# 最新の main ブランチを取得
+git checkout main
+git pull origin main
+
+# フィーチャーブランチを作成
+git checkout -b feature/your-feature-name
+
+# アプリケーションコードを変更
+# 例: app.js, package.json, Dockerfile など
+
+# 変更をコミット
+git add .
+git commit -m "feat: 新機能の追加"
+git push origin feature/your-feature-name
+```
+
+#### 2. プルリクエストを作成してレビュー
+
+1. GitHub でプルリクエストを作成 (`feature/your-feature-name` → `main`)
+2. チームメンバーにレビューを依頼
+3. 必要に応じて修正をコミット・プッシュ
+4. レビュー承認後、**Merge pull request** をクリック
+
+#### 3. 自動デプロイの実行
+
+- `main` ブランチへのマージが完了すると、GitHub Actions が自動的に実行されます
+- **Actions** タブでデプロイの進行状況を確認できます
+
+#### 4. デプロイ対象の確認
+
+以下の変更が含まれる場合、自動デプロイが実行されます:
+
+- ✅ `app.js`
+- ✅ `package.json` / `package-lock.json`
+- ✅ `Dockerfile` / `.dockerignore`
+- ✅ `src/**` / `lib/**` / `config/**`
+
+以下の変更のみの場合、デプロイは**実行されません**:
+
+- ❌ `README.md`
+- ❌ `docs/**`
+- ❌ `terraform/**`
+- ❌ その他の `*.md` ファイル
+
+---
+
+### 4.3 Container Apps のログ確認```bash
+
 az containerapp logs show \
-  --name slackbot-acasample \
-  --resource-group rg-slackbot-aca \
-  --follow
+ --name slackbot-sample-app \
+ --resource-group rg-slackbot-aca-cli \
+ --follow
+
 ```
 
 **期待されるログ**:
 
 ```
+
 ✅ Slack auth test success: { ok: true, ... }
 ⚡️ Slack Bot is running!
 🚀 Current Bot Version: v1.0.0
+
 ```
 
-### 4.3 Slack での動作確認
+### 4.4 Slack での動作確認
 
 Slack チャンネルでボットにメンション:
 
 ```
+
 @slackbot-aca /version
+
 ```
 
 ボットが返信すれば、CI/CD パイプラインが正常に動作しています!
@@ -481,8 +609,10 @@ Slack チャンネルでボットにメンション:
 **エラーメッセージ**:
 
 ```
+
 Error: Login failed with Error: AADSTS70021: No matching federated identity record found
-```
+
+````
 
 **原因**: Federated Credential の `subject` が GitHub リポジトリと一致していない
 
@@ -492,7 +622,7 @@ Error: Login failed with Error: AADSTS70021: No matching federated identity reco
 
    ```bash
    az ad app federated-credential list --id $APP_ID --query "[].{Name:name, Subject:subject}" -o table
-   ```
+````
 
 2. `subject` の形式を確認:
 
@@ -573,8 +703,8 @@ Failed to pull image: unauthorized: authentication required
 ```bash
 # Container Apps の Managed Identity を取得
 APP_PRINCIPAL_ID=$(az containerapp show \
-  --name slackbot-acasample \
-  --resource-group rg-slackbot-aca \
+  --name slackbot-sample-app \
+  --resource-group rg-slackbot-aca-cli \
   --query identity.principalId -o tsv)
 
 # AcrPull ロールを付与
@@ -634,17 +764,65 @@ az keyvault secret set --vault-name $KV_NAME --name slack-bot-token --value <NEW
 
 # Container App を再起動 (Key Vault から新しい値を取得)
 REVISION_NAME=$(az containerapp revision list \
-  --name slackbot-acasample \
-  --resource-group rg-slackbot-aca \
+  --name slackbot-sample-app \
+  --resource-group rg-slackbot-aca-cli \
   --query "[0].name" -o tsv)
 
 az containerapp revision restart \
-  --name slackbot-acasample \
-  --resource-group rg-slackbot-aca \
+  --name slackbot-sample-app \
+  --resource-group rg-slackbot-aca-cli \
   --revision $REVISION_NAME
 ```
 
-### 6.5 ブランチ保護
+### 6.5 デプロイトリガーの最適化
+
+不要なデプロイを防ぐため、アプリケーションコード変更時のみワークフローを実行:
+
+**デプロイが実行される変更**:
+
+- ✅ アプリケーションコード (`app.js`, `src/**`, `lib/**`)
+- ✅ 依存関係 (`package.json`, `package-lock.json`)
+- ✅ コンテナ定義 (`Dockerfile`, `.dockerignore`)
+- ✅ 設定ファイル (`config/**`)
+- ✅ ワークフロー自体 (`.github/workflows/deploy-production.yml`)
+
+**デプロイが実行されない変更**:
+
+- ❌ ドキュメント (`README.md`, `docs/**`, `*.md`)
+- ❌ インフラコード (`terraform/**`)
+- ❌ リポジトリメタファイル (`.gitignore`, `LICENSE`)
+
+> **💡 メリット**: ドキュメント更新時の不要なデプロイを回避し、コスト削減と効率化を実現
+
+**デプロイが実行されない変更**:
+
+- ❌ ドキュメント (`README.md`, `docs/**`, `*.md`)
+- ❌ インフラコード (`terraform/**`)
+- ❌ リポジトリメタファイル (`.gitignore`, `LICENSE`)
+
+**メリット**:
+
+- 🎯 不要なデプロイの削減によるコスト最適化
+- ⚡ CI/CD パイプラインの高速化
+- 🔒 デプロイ履歴の明確化 (アプリケーション変更のみ)
+
+**設定例** (`.github/workflows/deploy-production.yml`):
+
+```yaml
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'app.js'
+      - 'package.json'
+      - 'src/**'
+    paths-ignore:
+      - 'docs/**'
+      - 'terraform/**'
+```
+
+### 6.6 ブランチ保護
 
 `main` ブランチを保護して、直接 push を防ぐ:
 
@@ -656,21 +834,32 @@ az containerapp revision restart \
    - ✅ **Require status checks to pass before merging**
    - ✅ **Require signed commits** (推奨)
 
-### 6.6 監査ログの有効化
+### 6.7 監査ログの有効化
 
 #### Key Vault 診断設定
 
 ```bash
+# 変数の設定
+RESOURCE_GROUP="rg-slackbot-aca-cli"
+KV_NAME="kv-slackbot-aca-cli"
+CONTAINER_APP_NAME="slackbot-sample-app"
+LOG_WORKSPACE_NAME="ws-slackapp-aca"
+
 # Log Analytics Workspace ID の取得
 LOG_ANALYTICS_ID=$(az monitor log-analytics workspace show \
-  --resource-group rg-slackbot-aca \
-  --workspace-name slackbot-aca-logs \
+  --resource-group $RESOURCE_GROUP \
+  --workspace-name $LOG_WORKSPACE_NAME \
+  --query id -o tsv)
+
+# Key Vault のリソース ID を取得
+KV_RESOURCE_ID=$(az keyvault show \
+  --name $KV_NAME \
   --query id -o tsv)
 
 # Key Vault 診断設定の有効化
 az monitor diagnostic-settings create \
   --name kv-audit-logs \
-  --resource $(az keyvault show --name $KV_NAME --query id -o tsv) \
+  --resource $KV_RESOURCE_ID \
   --logs '[{"category":"AuditEvent","enabled":true}]' \
   --workspace $LOG_ANALYTICS_ID
 ```
@@ -678,10 +867,16 @@ az monitor diagnostic-settings create \
 #### Container Apps 診断設定
 
 ```bash
+# Container Apps のリソース ID を取得
+CONTAINER_APP_RESOURCE_ID=$(az containerapp show \
+  --name $CONTAINER_APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --query id -o tsv)
+
 # Container Apps 診断設定の有効化
 az monitor diagnostic-settings create \
   --name aca-logs \
-  --resource $(az containerapp show --name slackbot-acasample --resource-group rg-slackbot-aca --query id -o tsv) \
+  --resource $CONTAINER_APP_RESOURCE_ID \
   --logs '[{"category":"ContainerAppConsoleLogs","enabled":true},{"category":"ContainerAppSystemLogs","enabled":true}]' \
   --workspace $LOG_ANALYTICS_ID
 ```
