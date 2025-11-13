@@ -58,6 +58,8 @@ graph TB
 
 ### ローカルでの動作確認
 
+#### 方法 1: Node.js で直接実行
+
 1. **リポジトリのクローン**
 
    ```bash
@@ -95,6 +97,68 @@ graph TB
    @slackbot-aca こんにちは
    ```
 
+#### 方法 2: Docker コンテナで実行
+
+1. **リポジトリのクローン**
+
+   ```bash
+   git clone https://github.com/hondouchi/slackbotsample_aca.git
+   cd slackbotsample_aca
+   ```
+
+2. **環境変数の設定**
+
+   `.env` ファイルを作成:
+
+   ```bash
+   SLACK_BOT_TOKEN=xoxb-xxxxxxxxxxxxxxxx
+   SLACK_APP_TOKEN=xapp-1-xxxxxxxxxxxxxxxx
+   BOT_USER_ID=U08QCB7J1PH
+   ```
+
+3. **Docker イメージのビルド**
+
+   ```bash
+   docker build -t slackbot-sample:local .
+   ```
+
+4. **コンテナの起動**
+
+   ```bash
+   docker run --env-file .env -p 3000:3000 slackbot-sample:local
+   ```
+
+   または、環境変数を個別指定:
+
+   ```bash
+   docker run \
+     -e SLACK_BOT_TOKEN=xoxb-xxxxxxxxxxxxxxxx \
+     -e SLACK_APP_TOKEN=xapp-1-xxxxxxxxxxxxxxxx \
+     -e BOT_USER_ID=U08QCB7J1PH \
+     -p 3000:3000 \
+     slackbot-sample:local
+   ```
+
+5. **Slack で動作確認**
+
+   チャンネルでボットにメンション:
+
+   ```
+   @slackbot-aca こんにちは
+   ```
+
+6. **コンテナの停止**
+
+   ```bash
+   # 実行中のコンテナを確認
+   docker ps
+
+   # コンテナを停止
+   docker stop <CONTAINER_ID>
+   ```
+
+> **📝 Note**: Docker 版は本番環境と同じコンテナイメージで動作確認できるため、環境差異を最小化できます。
+
 ---
 
 ## ドキュメント
@@ -104,7 +168,8 @@ graph TB
 ### セットアップガイド
 
 - **[Slack アプリの作成](docs/setup-slack.md)** - Slack Bot の作成と設定手順
-- **[Azure リソースの作成](docs/setup-azure.md)** - Azure CLI / Portal を使用したリソース作成手順 (VNET 統合を含む)
+- **[Azure リソースの作成 (CLI 版)](docs/setup-azure_cli.md)** - Azure CLI を使用した詳細手順とベストプラクティス (推奨)
+- **[Azure リソースの作成 (Portal 版)](docs/setup-azure_portal.md)** - Azure Portal を使用したリソース作成手順
 - **[GitHub の設定](docs/setup-github.md)** - CI/CD パイプラインの設定手順
 
 ### 開発ガイド
@@ -128,7 +193,8 @@ slackbotsample_aca/
 ├── README.md                  # このファイル
 ├── docs/                      # ドキュメント
 │   ├── setup-slack.md
-│   ├── setup-azure.md
+│   ├── setup-azure_cli.md     # Azure CLI 版セットアップ (推奨)
+│   ├── setup-azure_portal.md  # Azure Portal 版セットアップ
 │   ├── setup-github.md
 │   ├── local-development.md
 │   ├── deployment.md
