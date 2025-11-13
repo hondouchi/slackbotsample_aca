@@ -42,14 +42,11 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Verify Azure login and subscription
+      - name: Set Azure subscription context
         run: |
-          echo "=== Verifying Azure Login ==="
+          echo "=== Setting Azure Subscription ==="
+          az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           az account show --query "{SubscriptionId:id, SubscriptionName:name, TenantId:tenantId}" -o table
-          echo ""
-          echo "=== Expected Subscription ==="
-          echo "Subscription ID: d79e0410-8e3c-4207-8d0a-1f7885d35859"
-          echo "Subscription Name: コンテナG検証用"
 
       - name: Verify ACR access
         run: |
