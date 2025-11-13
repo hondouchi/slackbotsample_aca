@@ -101,33 +101,198 @@ az group create \
 
 Docker イメージを保存するためのコンテナレジストリを作成します。
 
-### ACR の作成
+### 推奨構成: Standard SKU + Azure RBAC
+
+本ガイドでは、コストと機能のバランスが良い **Standard SKU** を標準とし、**Azure RBAC によるセキュアな認証**を推奨します。
+
+| 項目         | 推奨設定                        | 理由                                       |
+| ------------ | ------------------------------- | ------------------------------------------ |
+| SKU          | Standard                        | 本番利用に十分な性能、月額約 ¥6,000        |
+| 認証方式     | Azure RBAC (管理者ユーザー無効) | パスワード管理不要、権限の細かい制御が可能 |
+| 診断ログ     | 有効 (Log Analytics)            | セキュリティ監査とトラブルシューティング   |
+| イメージ管理 | 手動削除運用                    | 不要イメージを定期的にクリーンアップ       |
+
+> **📝 Premium SKU のみの機能 (オプション)**: Private Endpoint による閉域化、IP 制限、自動保持ポリシー、Geo レプリケーションなど。必要に応じて後から SKU アップグレード可能です。
+
+### 2.1 ACR の作成
 
 ```bash
 az acr create \
   --resource-group rg-slackbot-aca \
   --name <YOUR_ACR_NAME> \
   --sku Standard \
-  --admin-enabled true
+  --admin-enabled false
 ```
 
 **パラメータ**:
 
 - `--resource-group`: リソースグループ名
 - `--name`: ACR 名 (グローバルで一意、例: `slackbotaca123`)
-- `--sku`: SKU (`Basic`, `Standard`, `Premium`)
-- `--admin-enabled`: 管理者ユーザーを有効化
+- `--sku`: `Standard` (推奨)
+- `--admin-enabled`: `false` (Azure RBAC を使用するため無効化)
 
-### 管理者認証情報の取得
+> **🔐 セキュリティ**: 管理者ユーザーを無効化し、Azure RBAC で必要最小限の権限を付与します。
+
+### 2.2 Azure RBAC による権限設定
+
+#### 開発者への権限付与 (イメージ push 用)
+
+開発環境から ACR にイメージをプッシュできるよう、開発者に `AcrPush` ロールを付与します。
 
 ```bash
-az acr credential show \
-  --name <YOUR_ACR_NAME> \
-  --query "{username:username, password:passwords[0].value}" \
-  --output table
+# 現在サインインしているユーザーの Object ID を取得
+USER_OBJECT_ID=$(az ad signed-in-user show --query id -o tsv)
+
+# ACR のリソース ID を取得
+ACR_ID=$(az acr show --name <YOUR_ACR_NAME> --query id -o tsv)
+
+# AcrPush ロールを付与 (push + pull 権限)
+az role assignment create \
+  --assignee $USER_OBJECT_ID \
+  --role AcrPush \
+  --scope $ACR_ID
 ```
 
-> **⚠️ 重要**: ユーザー名とパスワードを保存してください (GitHub Actions で使用)
+> **📝 Note**: `AcrPush` ロールには、イメージの push と pull の両方の権限が含まれます。
+
+#### GitHub Actions 用 Service Principal の権限設定
+
+CI/CD パイプライン用の Service Principal 設定は [setup-github.md](setup-github.md) で後述します。
+
+#### Container Apps 用の権限設定
+
+Container Apps からイメージを pull するための Managed Identity 権限設定は、[7.4 節](#74-container-app-にマネージド-id-を付与) で実施します。
+
+### 2.3 診断ログの有効化
+
+ACR への認証やイメージ操作をログに記録し、セキュリティ監査に活用します。
+
+```bash
+# Log Analytics Workspace ID を取得 (後の手順で作成するため、ここではスキップ可)
+# 5. Log Analytics Workspace 作成後に実行してください
+
+# 診断設定を有効化
+az monitor diagnostic-settings create \
+  --name acr-diagnostics \
+  --resource $(az acr show --name <YOUR_ACR_NAME> --query id -o tsv) \
+  --workspace $(az monitor log-analytics workspace show \
+    --resource-group rg-slackbot-aca \
+    --workspace-name ws-slackapp-aca \
+    --query id -o tsv) \
+  --logs '[
+    {
+      "category": "ContainerRegistryLoginEvents",
+      "enabled": true
+    },
+    {
+      "category": "ContainerRegistryRepositoryEvents",
+      "enabled": true
+    }
+  ]' \
+  --metrics '[
+    {
+      "category": "AllMetrics",
+      "enabled": true
+    }
+  ]'
+```
+
+> **⏰ タイミング**: このコマンドは「5. Log Analytics Workspace の作成」完了後に実行してください。
+
+**記録される情報**:
+
+- **ContainerRegistryLoginEvents**: 認証の成功/失敗、アクセス元 IP
+- **ContainerRegistryRepositoryEvents**: イメージの push/pull/delete 操作
+- **AllMetrics**: ストレージ使用量、操作回数
+
+### 2.4 イメージのクリーンアップ運用 (推奨)
+
+不要なイメージを定期的に削除してストレージコストを最適化します。
+
+#### タグなしイメージの確認と削除
+
+```bash
+# タグなしマニフェストを一覧表示
+az acr repository show-manifests \
+  --name <YOUR_ACR_NAME> \
+  --repository slackbot-sample \
+  --query "[?tags==null].digest" \
+  --output tsv
+
+# タグなしマニフェストを削除
+az acr repository show-manifests \
+  --name <YOUR_ACR_NAME> \
+  --repository slackbot-sample \
+  --query "[?tags==null].digest" \
+  --output tsv | xargs -I% az acr repository delete \
+  --name <YOUR_ACR_NAME> \
+  --image slackbot-sample@% \
+  --yes
+```
+
+#### 古いタグの削除
+
+```bash
+# 特定のタグを削除
+az acr repository delete \
+  --name <YOUR_ACR_NAME> \
+  --image slackbot-sample:old-tag \
+  --yes
+```
+
+> **📝 運用ルール例**:
+>
+> - 開発環境: 週次で古いイメージを削除
+> - 本番環境: 直近 3 世代のみ保持、それ以外は削除
+> - タグ命名規則: `<version>-<commit-sha>` (例: `1.2.3-abc1234`)
+
+### 2.5 Premium SKU の追加機能 (オプション)
+
+セキュリティ要件が高い場合や、複数リージョン展開が必要な場合は Premium SKU を検討してください。
+
+#### Premium 限定機能
+
+| 機能                     | 用途                                       | 月額追加コスト       |
+| ------------------------ | ------------------------------------------ | -------------------- |
+| **Private Endpoint**     | VNET 閉域化、パブリックアクセス遮断        | 約 ¥1,000/endpoint   |
+| **IP ネットワーク制限**  | 特定 IP のみアクセス許可 (最大 100 ルール) | なし (SKU 内)        |
+| **自動保持ポリシー**     | タグなしイメージを自動削除                 | なし (SKU 内)        |
+| **Geo レプリケーション** | 複数リージョンで同期                       | リージョンあたり課金 |
+
+#### SKU のアップグレード
+
+必要に応じて、ダウンタイムなしで SKU を変更できます:
+
+```bash
+az acr update \
+  --name <YOUR_ACR_NAME> \
+  --sku Premium
+```
+
+#### Private Endpoint の設定例 (Premium 必須)
+
+```bash
+# Private Endpoint 作成
+az network private-endpoint create \
+  --resource-group rg-slackbot-aca \
+  --name acr-private-endpoint \
+  --vnet-name slackbot-aca-vnet \
+  --subnet aca-subnet \
+  --private-connection-resource-id $(az acr show --name <YOUR_ACR_NAME> --query id -o tsv) \
+  --group-id registry \
+  --connection-name acr-connection
+
+# パブリックアクセスを無効化
+az acr update \
+  --name <YOUR_ACR_NAME> \
+  --public-network-enabled false
+```
+
+> **💰 コスト比較**:
+>
+> - Standard: 約 ¥6,000/月
+> - Premium: 約 ¥18,000/月 + Private Endpoint ¥1,000/月
+> - 開発・検証環境では Standard で十分です
 
 ---
 
@@ -141,28 +306,30 @@ Container App を作成する前に、ACR に初期イメージを配置する�
 
 - Docker がローカル環境にインストールされていること
 - プロジェクトのルートディレクトリに `Dockerfile` と `package.json` が存在すること
+- Azure CLI でログイン済みであること (`az login`)
+- ACR への `AcrPush` 権限が付与されていること ([2.2 節](#22-azure-rbac-による権限設定) で設定済み)
 
-### 1. ACR にログイン
-
-**方法 A: Azure AD 認証を使用 (推奨)**
+### 1. ACR にログイン (Azure RBAC 使用)
 
 ```bash
 az acr login --name <YOUR_ACR_NAME>
 ```
 
-この方法は Azure CLI の認証情報を使用するため、パスワード管理が不要です。
+このコマンドは、Azure CLI の認証情報 (Azure AD) を使用して ACR にログインします。パスワード管理が不要で、RBAC で付与された権限が適用されます。
 
-**方法 B: 管理者認証情報を使用**
+**ログイン成功時の出力**:
 
-```bash
-# 管理者パスワードを取得
-ACR_PASSWORD=$(az acr credential show --name <YOUR_ACR_NAME> --query "passwords[0].value" -o tsv)
-
-# Docker で ACR にログイン
-docker login <YOUR_ACR_NAME>.azurecr.io \
-  --username <YOUR_ACR_NAME> \
-  --password $ACR_PASSWORD
 ```
+Login Succeeded
+```
+
+**エラー時の対処**:
+
+```
+unauthorized: authentication required
+```
+
+→ [2.2 節](#22-azure-rbac-による権限設定) で `AcrPush` ロールが付与されているか確認してください
 
 ### 2. Docker イメージのビルド
 
@@ -539,6 +706,8 @@ az keyvault secret set --vault-name kv-slackbot-aca --name bot-user-id --value <
 
 まず、**シークレット統合前の基本構成**で Container App を作成します。この時点ではシークレットを設定せず、後の手順で Key Vault から同期します。
 
+**重要**: ACR 認証は Managed Identity を使用するため、Container App 作成時に `--registry-identity` を指定します。
+
 ```bash
 az containerapp create \
   --name slackbot-app \
@@ -548,8 +717,7 @@ az containerapp create \
   --target-port 3000 \
   --ingress internal \
   --registry-server <YOUR_ACR_NAME>.azurecr.io \
-  --registry-username <ACR_USERNAME> \
-  --registry-password <ACR_PASSWORD> \
+  --registry-identity system \
   --min-replicas 1 \
   --max-replicas 1 \
   --cpu 0.5 \
@@ -567,41 +735,50 @@ az containerapp create \
 | `--target-port`                     | コンテナポート (Socket Mode では不使用だが必須) | `3000`                                         |
 | `--ingress`                         | イングレス設定 (Socket Mode なので internal)    | `internal`                                     |
 | `--registry-server`                 | ACR サーバー名                                  | `<YOUR_ACR_NAME>.azurecr.io`                   |
-| `--registry-username`               | ACR の管理者ユーザー名                          | ステップ 2 で取得                              |
-| `--registry-password`               | ACR の管理者パスワード                          | ステップ 2 で取得                              |
+| `--registry-identity`               | **ACR 認証に Managed Identity を使用**          | `system`                                       |
 | `--min-replicas` / `--max-replicas` | レプリカ数 (1 固定を推奨)                       | `1`                                            |
 | `--cpu` / `--memory`                | リソース割り当て                                | `0.5` / `1.0Gi`                                |
 
 > **📝 前提条件**: このコマンドを実行する前に、[3. 初期 Docker イメージのビルドとプッシュ](#3-初期-docker-イメージのビルドとプッシュ) を完了し、ACR にイメージが存在することを確認してください。
 >
-> **⚠️ 注意**: この時点ではシークレット (`--secrets`) や環境変数 (`--env-vars`) は設定していません。後の手順 (7.6) で Key Vault から同期します。
+> **⚠️ 注意**:
+>
+> - この時点ではシークレット (`--secrets`) や環境変数 (`--env-vars`) は設定していません。後の手順 (7.6) で Key Vault から同期します。
+> - `--registry-identity system` により、Container App の Managed Identity が自動的に有効化され、ACR へのアクセスに使用されます。
 
-### 7.4 Container App にマネージド ID を付与
+### 7.4 ACR へのアクセス権付与 (Managed Identity)
 
-Container App が Key Vault にアクセスできるように、システム割り当てマネージド ID を付与します。
-
-```bash
-az containerapp identity assign \
-  --name slackbot-app \
-  --resource-group rg-slackbot-aca \
-  --system-assigned
-```
-
-ID が付与されたら、そのプリンシパル ID を取得します:
+Container App の Managed Identity に ACR からイメージを pull する権限を付与します。
 
 ```bash
+# Container App の Managed Identity のプリンシパル ID を取得
 APP_PRINCIPAL_ID=$(az containerapp show \
   --name slackbot-app \
   --resource-group rg-slackbot-aca \
   --query identity.principalId -o tsv)
-echo $APP_PRINCIPAL_ID
+echo "Container App Principal ID: $APP_PRINCIPAL_ID"
+
+# ACR のリソース ID を取得
+ACR_ID=$(az acr show --name <YOUR_ACR_NAME> --query id -o tsv)
+
+# AcrPull ロールを付与
+az role assignment create \
+  --assignee $APP_PRINCIPAL_ID \
+  --role AcrPull \
+  --scope $ACR_ID
 ```
+
+> **📝 Note**: `AcrPull` ロールは、イメージの pull (読み取り) のみの権限です。Container App は push 不要なため、最小権限の原則に従って `AcrPull` を付与します。
 
 ### 7.5 Key Vault へのアクセス権付与 (Managed Identity に読み取り権限)
 
 Container App の Managed Identity に Key Vault からシークレットを読み取る権限を付与します。
 
 ```bash
+# Container App のプリンシパル ID を再利用 (7.4 で取得済み)
+# 念のため再取得する場合:
+# APP_PRINCIPAL_ID=$(az containerapp show --name slackbot-app --resource-group rg-slackbot-aca --query identity.principalId -o tsv)
+
 az role assignment create \
   --assignee $APP_PRINCIPAL_ID \
   --role "Key Vault Secrets User" \
@@ -835,46 +1012,29 @@ az network vnet subnet update \
   --network-security-group aca-nsg
 ```
 
-### マネージド ID で ACR にアクセス
-
-パスワードを使用せず、マネージド ID で ACR にアクセス:
-
-```bash
-# システム割り当てマネージド ID の有効化
-az containerapp identity assign \
-  --name slackbot-app \
-  --resource-group rg-slackbot-aca \
-  --system-assigned
-
-# マネージド ID に ACR へのアクセス権を付与
-PRINCIPAL_ID=$(az containerapp show \
-  --name slackbot-app \
-  --resource-group rg-slackbot-aca \
-  --query identity.principalId \
-  --output tsv)
-
-ACR_ID=$(az acr show \
-  --name <YOUR_ACR_NAME> \
-  --query id \
-  --output tsv)
-
-az role assignment create \
-  --assignee $PRINCIPAL_ID \
-  --role AcrPull \
-  --scope $ACR_ID
-```
-
 ### セキュリティチェックリスト
 
 実装後、以下の項目を確認してください:
 
+#### 必須項目 (Standard SKU で実装済み)
+
 - [ ] Container Apps Environment が VNET 内に配置されている
-- [ ] データベースなどの Azure リソースがプライベートエンドポイント経由で接続されている
-- [ ] NSG で不要なトラフィックがブロックされている
+- [ ] ACR 認証に Azure RBAC を使用 (管理者ユーザー無効)
+  - [ ] 開発者に `AcrPush` ロール付与
+  - [ ] Container App の Managed Identity に `AcrPull` ロール付与
 - [ ] マネージド ID を使用して、認証情報をコードに含めていない
 - [ ] Azure Key Vault でシークレットを管理している
-- [ ] 診断ログが有効化されている
+- [ ] ACR の診断ログが有効化されている (Log Analytics)
 - [ ] 最小権限の原則に従ってロールが割り当てられている
+- [ ] 不要なイメージを定期的に削除する運用ルールを策定
+
+#### オプション項目 (Premium SKU 必要)
+
+- [ ] ACR に Private Endpoint を設定 (閉域化)
+- [ ] ACR に IP ネットワーク制限を設定
+- [ ] ACR の自動保持ポリシーを有効化
+- [ ] データベースなどの Azure リソースがプライベートエンドポイント経由で接続されている
+- [ ] NSG で不要なトラフィックがブロックされている
 
 ---
 
