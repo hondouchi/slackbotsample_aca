@@ -799,46 +799,110 @@ az role assignment create \
 
 > **📝 Note**: CI/CD 用サービスプリンシパルの権限設定は [GitHub の設定](setup-github.md) で後述します。
 
-### 7.6 Key Vault シークレットを Container App に同期
+### 7.6 Key Vault 参照の設定
 
-Key Vault に保存したシークレットを Container App に反映します。ここでは **CLI 同期パターン** を使用します (Key Vault から値を取得 → Container App のシークレットに設定)。
+Key Vault に保存したシークレットを Container App から参照できるように設定します。ここでは **Key Vault 参照パターン** を使用します (Container App が Key Vault から直接シークレットを取得)。
 
-> **🔄 同期パターンについて**: Container Apps は Key Vault シークレットの自動同期機能がないため、更新時に手動で再同期するか、アプリコードで Managed Identity + SDK を使って直接取得する方式があります。ここでは運用が単純な CLI 同期方式を採用します。SDK 方式は [9.2 節](#92-sdk-を使った-key-vault-直接アクセス) を参照してください。
+> **🔄 Key Vault 参照とは**: Container Apps のシークレットに Key Vault の URL を設定することで、アプリケーション起動時に Managed Identity を使って Key Vault から自動的にシークレット値を取得します。シークレットを Key Vault で更新した場合、Container App を再起動するだけで新しい値が反映されます。
+
+#### 手順 1: Container App のシークレットを Key Vault 参照に設定
 
 ```bash
-# Key Vault から最新値を取得して Container App のシークレットに反映
-SLACK_BOT_TOKEN=$(az keyvault secret show --vault-name kv-slackbot-aca --name slack-bot-token --query value -o tsv)
-SLACK_APP_TOKEN=$(az keyvault secret show --vault-name kv-slackbot-aca --name slack-app-token --query value -o tsv)
-BOT_USER_ID=$(az keyvault secret show --vault-name kv-slackbot-aca --name bot-user-id --query value -o tsv)
-
 az containerapp secret set \
   --name slackbot-app \
   --resource-group rg-slackbot-aca \
   --secrets \
-    slack-bot-token=$SLACK_BOT_TOKEN \
-    slack-app-token=$SLACK_APP_TOKEN \
-    bot-user-id=$BOT_USER_ID
-
-# 環境変数を設定（個別に実行）
-az containerapp update \
-  --name slackbot-app \
-  --resource-group rg-slackbot-aca \
-  --set-env-vars "SLACK_BOT_TOKEN=secretref:slack-bot-token"
-
-az containerapp update \
-  --name slackbot-app \
-  --resource-group rg-slackbot-aca \
-  --set-env-vars "SLACK_APP_TOKEN=secretref:slack-app-token"
-
-az containerapp update \
-  --name slackbot-app \
-  --resource-group rg-slackbot-aca \
-  --set-env-vars "BOT_USER_ID=secretref:bot-user-id"
+    "slack-bot-token=keyvaultref:https://kv-slackbot-aca.vault.azure.net/secrets/slack-bot-token,identityref:system" \
+    "slack-app-token=keyvaultref:https://kv-slackbot-aca.vault.azure.net/secrets/slack-app-token,identityref:system" \
+    "bot-user-id=keyvaultref:https://kv-slackbot-aca.vault.azure.net/secrets/bot-user-id,identityref:system"
 ```
 
-> **📝 Note**: `--set-env-vars` は複数の環境変数を同時に設定できませんので、各環境変数を個別に実行する必要があります。
+**パラメータの説明**:
 
-> **🔄 代替案**: CLI 同期の代わりに、アプリコードから Key Vault SDK を使ってシークレットを直接取得する方式もあります。詳細は [9.2 SDK を使った Key Vault 直接アクセス](#92-sdk-を使った-key-vault-直接アクセス) を参照してください。
+- `keyvaultref:<KEY_VAULT_URL>`: Key Vault のシークレット URL
+- `identityref:system`: システム割り当てマネージド ID を使用
+
+> **⚠️ 重要**: Key Vault 名は `kv-slackbot-aca` の部分を実際の Key Vault 名に置き換えてください。
+
+#### 手順 2: 環境変数の設定
+
+```bash
+az containerapp update \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --set-env-vars \
+    "SLACK_BOT_TOKEN=secretref:slack-bot-token" \
+    "SLACK_APP_TOKEN=secretref:slack-app-token" \
+    "BOT_USER_ID=secretref:bot-user-id"
+```
+
+#### 手順 3: Key Vault 参照が正しく設定されたか確認
+
+```bash
+az containerapp secret list \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --query "[].{Name:name, KeyVaultUrl:keyVaultUrl}" \
+  --output table
+```
+
+**期待される出力**:
+
+```
+Name              KeyVaultUrl
+----------------  ------------------------------------------------------------
+slack-bot-token   https://kv-slackbot-aca.vault.azure.net/secrets/slack-bot-token
+slack-app-token   https://kv-slackbot-aca.vault.azure.net/secrets/slack-app-token
+bot-user-id       https://kv-slackbot-aca.vault.azure.net/secrets/bot-user-id
+```
+
+#### 手順 4: Container App を再起動して変更を反映
+
+```bash
+# 現在のリビジョン名を取得
+REVISION_NAME=$(az containerapp revision list \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --query "[0].name" \
+  --output tsv)
+
+# リビジョンを再起動
+az containerapp revision restart \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --revision $REVISION_NAME
+```
+
+> **📝 Note**: シークレット設定変更後は必ず再起動が必要です。再起動により、Key Vault から最新のシークレット値が取得されます。
+
+#### トラブルシューティング
+
+**Key Vault アクセスエラー (403 Forbidden)**:
+
+- 原因: Managed Identity に `Key Vault Secrets User` ロールが付与されていない、またはロール伝播が完了していない
+- 解決策:
+  1. 手順 7.5 でロールが正しく付与されているか確認
+  2. ロール伝播には 5〜10 分かかる場合があります。しばらく待ってから再起動
+
+**シークレット参照エラー**:
+
+- 原因: Key Vault URL が間違っている、またはシークレット名が Key Vault に存在しない
+- 解決策:
+  ```bash
+  # Key Vault のシークレット一覧を確認
+  az keyvault secret list --vault-name kv-slackbot-aca --query "[].name" --output table
+  ```
+
+> **🔄 代替案**: Key Vault 参照の代わりに、アプリコードから Key Vault SDK を使ってシークレットを直接取得する方式もあります。詳細は [9.2 SDK を使った Key Vault 直接アクセス](#92-sdk-を使った-key-vault-直接アクセス) を参照してください。
+
+#### Key Vault 参照のメリット
+
+| 項目                 | Key Vault 参照                    | CLI 同期パターン                         |
+| -------------------- | --------------------------------- | ---------------------------------------- |
+| **シークレット更新** | Key Vault で更新 → 再起動のみ     | Key Vault で更新 → CLI で再同期 → 再起動 |
+| **監査ログ**         | Key Vault のアクセスログに記録    | Container Apps のログのみ                |
+| **セキュリティ**     | シークレット値は Key Vault に保存 | Container Apps にもコピーが保存される    |
+| **運用**             | シンプル (再起動のみ)             | 複雑 (同期スクリプトが必要)              |
 
 ---
 
@@ -905,25 +969,27 @@ az role assignment list \
 
 ### 8.3 環境変数とシークレットの確認
 
-#### シークレット登録の確認
+#### Key Vault 参照の確認
 
 ```bash
 az containerapp secret list \
   --name slackbot-app \
   --resource-group rg-slackbot-aca \
-  --query "[].name" \
+  --query "[].{Name:name, KeyVaultUrl:keyVaultUrl}" \
   --output table
 ```
 
 **期待される出力**:
 
 ```
-Result
-------------------
-slack-bot-token
-slack-app-token
-bot-user-id
+Name              KeyVaultUrl
+----------------  ------------------------------------------------------------
+slack-bot-token   https://kv-slackbot-aca.vault.azure.net/secrets/slack-bot-token
+slack-app-token   https://kv-slackbot-aca.vault.azure.net/secrets/slack-app-token
+bot-user-id       https://kv-slackbot-aca.vault.azure.net/secrets/bot-user-id
 ```
+
+> **✅ 確認ポイント**: `KeyVaultUrl` 列に Key Vault の URL が表示されていれば、Key Vault 参照が正しく設定されています。
 
 #### 環境変数の確認
 
@@ -990,9 +1056,9 @@ az containerapp logs show \
 
 ### 9.1 シークレットの更新・ローテーション
 
-Slack トークンやその他のシークレットを更新する場合の手順です。Key Vault を単一ソースとして管理します。
+Slack トークンやその他のシークレットを更新する場合の手順です。Key Vault 参照を使用している場合、Key Vault で更新して Container App を再起動するだけで反映されます。
 
-#### 更新手順 (推奨フロー)
+#### 更新手順 (Key Vault 参照使用時 - 推奨)
 
 1. **Key Vault でシークレットを更新**:
 
@@ -1000,36 +1066,68 @@ Slack トークンやその他のシークレットを更新する場合の手�
    az keyvault secret set --vault-name kv-slackbot-aca --name slack-bot-token --value <NEW_TOKEN>
    ```
 
-2. **Container App に同期** (7.6 の同期手順を再実行):
+2. **Container App を再起動して新しい値を取得**:
 
    ```bash
-   SLACK_BOT_TOKEN=$(az keyvault secret show --vault-name kv-slackbot-aca --name slack-bot-token --query value -o tsv)
-   az containerapp secret set \
+   # 現在のリビジョン名を取得
+   REVISION_NAME=$(az containerapp revision list \
      --name slackbot-app \
      --resource-group rg-slackbot-aca \
-     --secrets slack-bot-token=$SLACK_BOT_TOKEN
-   ```
+     --query "[0].name" \
+     --output tsv)
 
-3. **Container App を再起動** (必要に応じて):
-
-   ```bash
+   # リビジョンを再起動
    az containerapp revision restart \
      --name slackbot-app \
-     --resource-group rg-slackbot-aca
+     --resource-group rg-slackbot-aca \
+     --revision $REVISION_NAME
    ```
 
-> **📝 補足**: CI/CD が設定されている場合は、次回デプロイ時に自動的に同期されます。即時反映が必要な場合のみ手動で上記を実行してください。
+3. **更新が反映されたか確認**:
+
+   ```bash
+   az containerapp logs show \
+     --name slackbot-app \
+     --resource-group rg-slackbot-aca \
+     --tail 20
+   ```
+
+> **✅ Key Vault 参照のメリット**: Container App のシークレット設定を変更する必要がなく、Key Vault での更新と再起動だけで完了します。CLI 同期パターンと比べて運用が大幅に簡素化されます。
+
+#### 複数のシークレットを一括更新する場合
+
+```bash
+# 複数のシークレットを Key Vault で更新
+az keyvault secret set --vault-name kv-slackbot-aca --name slack-bot-token --value <NEW_BOT_TOKEN>
+az keyvault secret set --vault-name kv-slackbot-aca --name slack-app-token --value <NEW_APP_TOKEN>
+
+# Container App を再起動 (すべての新しい値が取得される)
+REVISION_NAME=$(az containerapp revision list \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --query "[0].name" \
+  --output tsv)
+az containerapp revision restart \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --revision $REVISION_NAME
+```
+
+> **📝 補足**: CI/CD が設定されている場合は、次回デプロイ時に自動的に再起動されます。即時反映が必要な場合のみ手動で上記を実行してください。
 
 ### 9.2 SDK を使った Key Vault 直接アクセス
 
-CLI 同期の代わりに、アプリケーション起動時に Key Vault から直接シークレットを取得する方式です。ローテーション時の自動反映が可能ですが、SDK 依存が増えます。
+Key Vault 参照の代わりに、アプリケーションコード内で Azure SDK を使って Key Vault から直接シークレットを取得する方式です。より細かい制御が可能ですが、実装が複雑になります。
 
 #### メリット・デメリット
 
-| 方式             | メリット                             | デメリット                         |
-| ---------------- | ------------------------------------ | ---------------------------------- |
-| CLI 同期 (推奨)  | 運用がシンプル、アプリコード変更不要 | シークレット更新時に手動同期が必要 |
-| SDK 直接アクセス | シークレット更新時の自動反映         | SDK 依存追加、アプリコード変更必要 |
+| 方式                        | メリット                                 | デメリット                         |
+| --------------------------- | ---------------------------------------- | ---------------------------------- |
+| Key Vault 参照 (推奨)       | 設定のみで完結、再起動で自動更新         | Container Apps の機能に依存        |
+| SDK 直接アクセス            | キャッシュやリトライなど細かい制御が可能 | SDK 依存追加、アプリコード変更必要 |
+| Container Apps シークレット | 最もシンプル                             | Key Vault の一元管理機能が使えない |
+
+> **📝 推奨**: 特別な要件がない限り、**Key Vault 参照** (セクション 7.6) を使用することを推奨します。運用がシンプルで、Azure のセキュリティベストプラクティスにも準拠しています。
 
 #### Node.js 実装例 (Managed Identity + Azure SDK)
 
