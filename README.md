@@ -5,41 +5,10 @@ Slack の Socket Mode を使用して、メンションに反応してメッセ�
 
 ## 📋 目次
 
-- [構築環境情報](#構築環境情報)
 - [アプリケーション仕様](#アプリケーション仕様)
 - [アーキテクチャ](#アーキテクチャ)
 - [クイックスタート](#クイックスタート)
 - [ドキュメント](#ドキュメント)
-
----
-
-## 構築環境情報
-
-このプロジェクトの実際の構築環境:
-
-### Slack アプリ情報
-
-- **ワークスペース**: AP Communications
-- **App Name**: slackbot-aca
-- **App ID**: A08QK971VML
-- **Client ID**: 296963997159.8835313063734
-- **作成日**: May 3, 2025
-
-### 開発環境
-
-- **ローカルパス**: `projects/slackbotsample_aca`
-- **GitHub リポジトリ**: https://github.com/hondouchi/slackbotsample_aca
-- **ブランチ構成**:
-  - `main`: 本番環境
-  - `develop`: 開発環境
-
-### Azure リソース
-
-- **リソースグループ**: hondouchi-slackbot-aca
-- **Container Registry**: slackbotaca.azurecr.io
-- **Container Apps**: slackbot-acasample
-- **Environment**: slackbot-aca-env
-- **リージョン**: Japan East
 
 ---
 

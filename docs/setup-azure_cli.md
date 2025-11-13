@@ -1,42 +1,45 @@
-# Azure リソースの作成
+# Azure リソースの作成 (Azure CLI)
 
-このドキュメントでは、Slack Bot を Azure Container Apps (ACA) で動作させるために必要な Azure リソースを作成する手順を説明します。
+このドキュメントでは、**Azure CLI** を使用して Slack Bot を Azure Container Apps (ACA) で動作させるために必要な Azure リソースを作成する手順を説明します。
 
-**Azure CLI** または **Azure Portal** のいずれかの方法で作成できます。各セクションで両方の手順を記載しています。
+> **📝 Note**: Azure Portal を使用した手順は [setup-azure_portal.md](setup-azure_portal.md) を参照してください。
 
 ## 目次
 
 1. [前提条件](#前提条件)
 2. [リソースグループの作成](#1-リソースグループの作成)
 3. [Azure Container Registry (ACR) の作成](#2-azure-container-registry-acr-の作成)
-4. [初期 Docker イメージのビルドとプッシュ](#25-初期-docker-イメージのビルドとプッシュ)
-5. [Virtual Network (VNET) とサブネットの作成](#3-virtual-network-vnet-の作成)
-6. [Log Analytics Workspace の作成](#4-log-analytics-workspace-の作成)
-7. [Container Apps Environment の作成](#5-container-apps-environment-の作成)
-8. [Container Apps の作成 (Key Vault 統合)](#6-azure-container-apps-の作成key-vault-統合)
-   - 6.1 Key Vault の作成
-   - 6.2 Key Vault にシークレットを登録
-   - 6.3 Container App の作成
-   - 6.4 Managed Identity の付与
-   - 6.5 Key Vault アクセス権の付与
-   - 6.6 シークレット同期
-   - 6.7 アプリコードから直接取得 (オプション)
-9. [シークレットの更新・ローテーション](#7-シークレットの更新ローテーション)
-10. [デプロイの確認](#8-デプロイの確認)
-11. [追加のセキュリティ / ネットワーク設定](#9-追加のセキュリティ設定)
-12. [トラブルシューティング](#トラブルシューティング)
+4. [初期 Docker イメージのビルドとプッシュ](#3-初期-docker-イメージのビルドとプッシュ)
+5. [Virtual Network (VNET) とサブネットの作成](#4-virtual-network-とサブネットの作成)
+6. [Log Analytics Workspace の作成](#5-log-analytics-workspace-の作成)
+7. [Container Apps Environment の作成](#6-container-apps-environment-の作成-vnet-統合)
+8. [Container Apps の作成 (Key Vault 統合)](#7-container-apps-の作成-key-vault-統合)
+   - 7.1 Key Vault の作成
+   - 7.2 Key Vault にシークレットを登録
+   - 7.3 Container App の作成
+   - 7.4 Managed Identity の付与
+   - 7.5 Key Vault アクセス権の付与
+   - 7.6 シークレット同期
+   - 7.7 アプリコードから直接取得 (オプション)
+9. [シークレットの更新・ローテーション](#8-シークレットの更新ローテーション)
+10. [デプロイの確認](#9-デプロイの確認)
+11. [追加のセキュリティ設定](#10-追加のセキュリティ設定-オプション)
+12. [リソース一覧](#リソース一覧)
+13. [コスト管理](#コスト管理)
+14. [トラブルシューティング](#トラブルシューティング)
+
+---
 
 ## 前提条件
-
-### Azure CLI を使用する場合
 
 - Azure サブスクリプション
 - Azure CLI (バージョン 2.28.0 以上) がインストールされていること
 - Azure にログイン済みであること (`az login`)
+- Docker がローカル環境にインストールされていること
 
-#### セットアップ手順
+### セットアップ手順
 
-1. **Azure CLI を最新版に更新**
+#### 1. Azure CLI を最新版に更新
 
 ```bash
 az upgrade
@@ -44,7 +47,7 @@ az upgrade
 
 > **⚠️ 重要**: `az upgrade` を実行しないと、次のステップの `--allow-preview` オプションが使えません。
 
-2. **Container Apps 拡張機能のインストール/更新（プレビュー機能を有効化）**
+#### 2. Container Apps 拡張機能のインストール/更新（プレビュー機能を有効化）
 
 ```bash
 az extension add --name containerapp --upgrade --allow-preview true
@@ -59,7 +62,7 @@ az extension add --name containerapp --upgrade --allow-preview true
 > Command group 'containerapp' is in preview and under development.
 > ```
 
-3. **必要なリソースプロバイダーの登録**
+#### 3. 必要なリソースプロバイダーの登録
 
 ```bash
 az provider register --namespace Microsoft.App
@@ -75,18 +78,11 @@ az provider show -n Microsoft.OperationalInsights --query "registrationState"
 
 両方とも `"Registered"` と表示されれば完了です。
 
-### Azure Portal を使用する場合
-
-- Azure サブスクリプション
-- Azure Portal へのアクセス権限
-
 ---
 
 ## 1. リソースグループの作成
 
 すべての Azure リソースを管理するリソースグループを作成します。
-
-### Azure CLI を使用する場合
 
 ```bash
 az group create \
@@ -99,26 +95,13 @@ az group create \
 - `--name`: リソースグループ名 (任意、例: `rg-slackbot-aca`)
 - `--location`: リージョン (`japaneast` を推奨)
 
-### Azure Portal を使用する場合
-
-1. [Azure Portal](https://portal.azure.com) にサインイン
-2. 上部の検索バーで **リソース グループ** を検索
-3. **+ 作成** をクリック
-4. 以下を入力:
-   - **サブスクリプション**: 使用するサブスクリプションを選択
-   - **リソース グループ**: `rg-slackbot-aca` (任意の名前)
-   - **リージョン**: `Japan East`
-5. **確認および作成** → **作成**
-
 ---
 
 ## 2. Azure Container Registry (ACR) の作成
 
 Docker イメージを保存するためのコンテナレジストリを作成します。
 
-### Azure CLI を使用する場合
-
-#### ACR の作成
+### ACR の作成
 
 ```bash
 az acr create \
@@ -135,7 +118,7 @@ az acr create \
 - `--sku`: SKU (`Basic`, `Standard`, `Premium`)
 - `--admin-enabled`: 管理者ユーザーを有効化
 
-#### 管理者認証情報の取得
+### 管理者認証情報の取得
 
 ```bash
 az acr credential show \
@@ -146,30 +129,9 @@ az acr credential show \
 
 > **⚠️ 重要**: ユーザー名とパスワードを保存してください (GitHub Actions で使用)
 
-### Azure Portal を使用する場合
-
-#### ACR の作成
-
-1. Azure Portal の検索バーで **コンテナー レジストリ** を検索
-2. **+ 作成** をクリック
-3. **基本** タブで以下を設定:
-   - **サブスクリプション**: 使用するサブスクリプション
-   - **リソース グループ**: `rg-slackbot-aca`
-   - **レジストリ名**: グローバルで一意な名前 (例: `slackbotaca123`)
-   - **場所**: `Japan East`
-   - **SKU**: `Standard`
-4. **確認および作成** → **作成**
-
-#### 管理者ユーザーの有効化
-
-1. 作成した ACR を開く
-2. 左メニューから **アクセス キー** を選択
-3. **管理者ユーザー** を **有効** に設定
-4. **ユーザー名** と **パスワード** を保存 (GitHub Actions で使用)
-
 ---
 
-## 2.5. 初期 Docker イメージのビルドとプッシュ
+## 3. 初期 Docker イメージのビルドとプッシュ
 
 Container App を作成する前に、ACR に初期イメージを配置する必要があります。ここでは開発環境から直接ビルド・プッシュする手順を説明します。
 
@@ -180,9 +142,7 @@ Container App を作成する前に、ACR に初期イメージを配置する�
 - Docker がローカル環境にインストールされていること
 - プロジェクトのルートディレクトリに `Dockerfile` と `package.json` が存在すること
 
-### Azure CLI を使用する場合
-
-#### 1. ACR にログイン
+### 1. ACR にログイン
 
 **方法 A: Azure AD 認証を使用 (推奨)**
 
@@ -204,7 +164,7 @@ docker login <YOUR_ACR_NAME>.azurecr.io \
   --password $ACR_PASSWORD
 ```
 
-#### 2. Docker イメージのビルド
+### 2. Docker イメージのビルド
 
 プロジェクトのルートディレクトリで実行:
 
@@ -212,19 +172,19 @@ docker login <YOUR_ACR_NAME>.azurecr.io \
 docker build -t slackbot-sample:1 .
 ```
 
-#### 3. イメージにタグを付与
+### 3. イメージにタグを付与
 
 ```bash
 docker tag slackbot-sample:1 <YOUR_ACR_NAME>.azurecr.io/slackbot-sample:1
 ```
 
-#### 4. ACR にプッシュ
+### 4. ACR にプッシュ
 
 ```bash
 docker push <YOUR_ACR_NAME>.azurecr.io/slackbot-sample:1
 ```
 
-#### 5. イメージが登録されたか確認
+### 5. イメージが登録されたか確認
 
 ```bash
 az acr repository show \
@@ -248,17 +208,6 @@ Result
 --------
 1
 ```
-
-### Azure Portal を使用する場合
-
-Portal では直接イメージをプッシュできないため、CLI の手順 (上記) を実行してください。プッシュ後、Portal で確認できます。
-
-#### Portal でイメージを確認
-
-1. Azure Portal で作成した ACR を開く
-2. 左メニューから **リポジトリ** を選択
-3. `slackbot-sample` リポジトリをクリック
-4. タグ `1` が表示されることを確認
 
 ### トラブルシューティング
 
@@ -306,7 +255,7 @@ az acr login --name <YOUR_ACR_NAME>
 
 ---
 
-## 3. Virtual Network とサブネットの作成
+## 4. Virtual Network とサブネットの作成
 
 セキュリティを強化するため、Container Apps を仮想ネットワーク内に配置します。
 
@@ -334,7 +283,7 @@ graph TB
     style DB fill:#F25022,stroke:#333,stroke-width:2px,color:#fff
 ```
 
-### Azure CLI を使用する場合
+### リソースの作成
 
 ```bash
 # VNET の作成
@@ -382,25 +331,6 @@ az network vnet subnet create \
   - Container Apps 用: `/23` 以上が必要 (512 アドレス)
   - データベース用: `/24` (256 アドレス)
 
-### Azure Portal を使用する場合
-
-1. Azure Portal で **仮想ネットワーク** を検索
-2. **+ 作成** をクリック
-3. **基本** タブ:
-   - **サブスクリプション**: 使用するサブスクリプション
-   - **リソース グループ**: `rg-slackbot-aca`
-   - **名前**: `slackbot-aca-vnet`
-   - **リージョン**: `Japan East`
-4. **IP アドレス** タブ:
-   - **IPv4 アドレス空間**: `10.0.0.0/16`
-   - **+ サブネットの追加**:
-     - **名前**: `aca-subnet`
-     - **サブネット アドレス範囲**: `10.0.0.0/23`
-   - **+ サブネットの追加**:
-     - **名前**: `database-subnet`
-     - **サブネット アドレス範囲**: `10.0.2.0/24`
-5. **確認および作成** → **作成**
-
 > **📝 補足**:
 >
 > - Container Apps Environment には最低でも `/23` (512 アドレス) のサブネットが必要です
@@ -408,11 +338,9 @@ az network vnet subnet create \
 
 ---
 
-## 4. Log Analytics Workspace の作成
+## 5. Log Analytics Workspace の作成
 
 Container Apps のログとメトリクスを収集するための Log Analytics Workspace を作成します。
-
-### Azure CLI を使用する場合
 
 ```bash
 # Log Analytics Workspaceを作成
@@ -442,26 +370,11 @@ WORKSPACE_KEY=$(az monitor log-analytics workspace get-shared-keys \
 - `--resource-group`: リソースグループ名
 - `--location`: リージョン
 
-### Azure Portal を使用する場合
-
-1. Azure Portal で **Log Analytics ワークスペース** を検索
-2. **+ 作成** をクリック
-3. 以下を設定:
-   - **サブスクリプション**: 使用するサブスクリプション
-   - **リソース グループ**: `rg-slackbot-aca`
-   - **名前**: `ws-slackapp-aca`
-   - **リージョン**: `Japan East`
-4. **確認および作成** → **作成**
-
-> **📝 補足**: Portal で作成した場合、次のステップで Workspace を選択する際に使用します。
-
 ---
 
-## 5. Container Apps Environment の作成 (VNET 統合)
+## 6. Container Apps Environment の作成 (VNET 統合)
 
 Container Apps の実行環境を VNET 内に作成します。
-
-### Azure CLI を使用する場合
 
 ```bash
 # サブネット ID の取得
@@ -532,29 +445,9 @@ az containerapp env create \
 
 > **📝 Note**: Socket Mode では外部からの WebSocket 接続が必要なため、`--internal-only` は `false` に設定します。
 
-### Azure Portal を使用する場合
-
-1. Azure Portal の検索バーで **コンテナー アプリ環境** を検索
-2. **+ 作成** をクリック
-3. **基本** タブで以下を設定:
-   - **サブスクリプション**: 使用するサブスクリプション
-   - **リソース グループ**: `rg-slackbot-aca`
-   - **コンテナー アプリ環境名**: `slackbot-aca-env`
-   - **リージョン**: `Japan East`
-   - **ゾーン冗長**: `無効` (開発環境の場合)
-4. **ネットワーク** タブ:
-   - **仮想ネットワーク**: `slackbot-aca-vnet`
-   - **インフラストラクチャ サブネット**: `aca-subnet`
-   - **仮想ネットワーク内部専用**: `いいえ` (Slack からの接続を許可)
-5. **監視** タブ:
-   - **Log Analytics ワークスペース**: `ws-slackapp-aca` (先ほど作成したもの)
-6. **確認および作成** → **作成**
-
-> **📝 補足**: 先ほど作成した Log Analytics ワークスペースを選択することで、ログが指定した Workspace に収集されます。
-
 ---
 
-## 6. Azure Container Apps の作成 (Key Vault 統合パターン)
+## 7. Container Apps の作成 (Key Vault 統合)
 
 このセクションでは、**Azure Key Vault を使った安全なシークレット管理**を前提に、Container Apps を作成します。手順は以下の流れです:
 
@@ -567,9 +460,7 @@ az containerapp env create \
 
 > **📝 Note**: CI/CD 用サービスプリンシパルの権限設定は [GitHub の設定](setup-github.md) で後述します。
 
-### 6.1 Key Vault の作成
-
-#### 6.1 Key Vault の作成
+### 7.1 Key Vault の作成
 
 ```bash
 az keyvault create \
@@ -583,9 +474,9 @@ az keyvault create \
 
 > **📝 補足**: 名前はグローバル一意です。既に使用されている場合はサフィックスを付けてください (例: `kv-slackbot-aca-dev`). `--enable-purge-protection` は本番で推奨。検証環境では省略可能。
 
-#### 6.2 Key Vault にシークレットを登録
+### 7.2 Key Vault にシークレットを登録
 
-##### 事前準備 (必須): シークレット書き込み権限の確認と付与
+#### 事前準備 (必須): シークレット書き込み権限の確認と付与
 
 以下の `az keyvault secret set` を実行するには、呼び出し主体 (あなた自身のユーザー、または CI/CD 用サービスプリンシパル) が Key Vault に対して「書き込み」権限を持っている必要があります。`Key Vault Secrets User` ロールは読み取り専用のためシークレット登録は失敗します。まず次の手順を完了してください。
 
@@ -644,11 +535,9 @@ az keyvault secret set --vault-name kv-slackbot-aca --name slack-app-token --val
 az keyvault secret set --vault-name kv-slackbot-aca --name bot-user-id --value <BOT_USER_ID>
 ```
 
-#### 6.3 Container App の作成 (初期状態)
+### 7.3 Container App の作成 (初期状態)
 
 まず、**シークレット統合前の基本構成**で Container App を作成します。この時点ではシークレットを設定せず、後の手順で Key Vault から同期します。
-
-##### Azure CLI を使用する場合
 
 ```bash
 az containerapp create \
@@ -683,48 +572,11 @@ az containerapp create \
 | `--min-replicas` / `--max-replicas` | レプリカ数 (1 固定を推奨)                       | `1`                                            |
 | `--cpu` / `--memory`                | リソース割り当て                                | `0.5` / `1.0Gi`                                |
 
-> **📝 前提条件**: このコマンドを実行する前に、[2.5 初期 Docker イメージのビルドとプッシュ](#25-初期-docker-イメージのビルドとプッシュ) を完了し、ACR にイメージが存在することを確認してください。
+> **📝 前提条件**: このコマンドを実行する前に、[3. 初期 Docker イメージのビルドとプッシュ](#3-初期-docker-イメージのビルドとプッシュ) を完了し、ACR にイメージが存在することを確認してください。
 >
-> **⚠️ 注意**: この時点ではシークレット (`--secrets`) や環境変数 (`--env-vars`) は設定していません。後の手順 (6.6) で Key Vault から同期します。
+> **⚠️ 注意**: この時点ではシークレット (`--secrets`) や環境変数 (`--env-vars`) は設定していません。後の手順 (7.6) で Key Vault から同期します。
 
-##### Azure Portal を使用する場合
-
-1. Azure Portal の検索バーで **コンテナー アプリ** を検索
-2. **+ 作成** をクリック
-
-**基本タブ**:
-
-- **サブスクリプション**: 使用するサブスクリプション
-- **リソース グループ**: `rg-slackbot-aca`
-- **コンテナー アプリ名**: `slackbot-app`
-- **リージョン**: `Japan East`
-- **コンテナー アプリ環境**: `slackbot-aca-env`
-
-**コンテナー タブ**:
-
-- **イメージ ソース**: `Azure Container Registry`
-- **レジストリ**: 作成した ACR を選択
-- **イメージ**: `slackbot-sample`
-- **イメージ タグ**: `1` または `latest`
-- **CPU コア**: `0.5`
-- **メモリ (Gi)**: `1.0`
-
-**イングレス タブ**:
-
-- **イングレス**: `有効`
-- **イングレス トラフィック**: `内部のみ`
-- **ターゲット ポート**: `3000`
-
-**スケール タブ**:
-
-- **最小レプリカ数**: `1`
-- **最大レプリカ数**: `1`
-
-> **📝 Note**: この時点ではシークレットと環境変数は設定しません。後の手順で追加します。
-
-**確認と作成**: **確認および作成** → **作成**
-
-#### 6.4 Container App にマネージド ID を付与
+### 7.4 Container App にマネージド ID を付与
 
 Container App が Key Vault にアクセスできるように、システム割り当てマネージド ID を付与します。
 
@@ -745,7 +597,7 @@ APP_PRINCIPAL_ID=$(az containerapp show \
 echo $APP_PRINCIPAL_ID
 ```
 
-#### 6.5 Key Vault へのアクセス権付与 (Managed Identity に読み取り権限)
+### 7.5 Key Vault へのアクセス権付与 (Managed Identity に読み取り権限)
 
 Container App の Managed Identity に Key Vault からシークレットを読み取る権限を付与します。
 
@@ -761,16 +613,16 @@ az role assignment create \
 | 用途                                    | 推奨ロール                | 付与対象                          | 権限概要            |
 | --------------------------------------- | ------------------------- | --------------------------------- | ------------------- |
 | Container App がシークレットを参照      | Key Vault Secrets User    | Container App の Managed Identity | get/list (set 不可) |
-| ユーザーがシークレットを登録/更新 (6.2) | Key Vault Secrets Officer | 開発者ユーザー                    | set/delete/list     |
+| ユーザーがシークレットを登録/更新 (7.2) | Key Vault Secrets Officer | 開発者ユーザー                    | set/delete/list     |
 | CI/CD でシークレットを同期 (後述)       | Key Vault Secrets Officer | GitHub Actions SP                 | set/delete/list     |
 
-> **� Note**: CI/CD 用サービスプリンシパルの権限設定は [GitHub の設定](setup-github.md) で後述します。
+> **📝 Note**: CI/CD 用サービスプリンシパルの権限設定は [GitHub の設定](setup-github.md) で後述します。
 
-#### 6.6 Key Vault シークレットを Container App に同期
+### 7.6 Key Vault シークレットを Container App に同期
 
 Key Vault に保存したシークレットを Container App に反映します。ここでは **CLI 同期パターン** を使用します (Key Vault から値を取得 → Container App のシークレットに設定)。
 
-> **🔄 同期パターンについて**: Container Apps は Key Vault シークレットの自動同期機能がないため、更新時に手動で再同期するか、アプリコードで Managed Identity + SDK を使って直接取得する方式があります。ここでは運用が単純な CLI 同期方式を採用します。SDK 方式は 6.7 で説明します。
+> **🔄 同期パターンについて**: Container Apps は Key Vault シークレットの自動同期機能がないため、更新時に手動で再同期するか、アプリコードで Managed Identity + SDK を使って直接取得する方式があります。ここでは運用が単純な CLI 同期方式を採用します。SDK 方式は 7.7 で説明します。
 
 ```bash
 # Key Vault から最新値を取得して Container App のシークレットに反映
@@ -803,7 +655,9 @@ az containerapp update \
   --set-env-vars "BOT_USER_ID=secretref:bot-user-id"
 ```
 
-#### 6.7 アプリコードから直接取得する方式 (代替案・オプション)
+> **📝 Note**: `--set-env-vars` は複数の環境変数を同時に設定できませんので、各環境変数を個別に実行する必要があります。
+
+### 7.7 アプリコードから直接取得する方式 (代替案・オプション)
 
 CLI 同期の代わりに、アプリケーション起動時に Key Vault から直接シークレットを取得する方式です。ローテーション時の自動反映が可能ですが、SDK 依存が増えます。
 
@@ -842,75 +696,7 @@ loadSecrets().then((secrets) => {
 
 ---
 
-### Azure Portal を使用する場合 (Key Vault 統合)
-
-Portal 経由で Container App を作成する場合も、上記の CLI 手順に準じて以下の流れで実施します:
-
-1. **[2.5 初期イメージのビルドとプッシュ](#25-初期-docker-イメージのビルドとプッシュ)** を完了 (CLI で実施)
-2. **Key Vault を作成** (Portal の Key Vault サービスから)
-3. **アクセスポリシーまたは RBAC で自分に Secrets Officer 権限を付与**
-4. **Key Vault にシークレットを登録** (Portal の Key Vault → シークレット)
-5. **Container App を作成** (下記手順)
-6. **Managed Identity を有効化** (Container App → ID)
-7. **Managed Identity に Key Vault Secrets User 権限を付与** (Key Vault → アクセス制御)
-8. **Container App のシークレットを同期** (CLI で実施、または Portal で手動設定)
-9. **Key Vault にシークレットを登録** (Portal の Key Vault → シークレット)
-10. **Container App を作成** (下記手順)
-11. **Managed Identity を有効化** (Container App → ID)
-12. **Managed Identity に Key Vault Secrets User 権限を付与** (Key Vault → アクセス制御)
-13. **Container App のシークレットを手動更新** (CLI 推奨、または Portal)
-
-#### Container App 作成 (Portal)
-
-1. Azure Portal の検索バーで **コンテナー アプリ** を検索
-2. **+ 作成** をクリック
-
-**基本タブ**:
-
-- **サブスクリプション**: 使用するサブスクリプション
-- **リソース グループ**: `rg-slackbot-aca`
-- **コンテナー アプリ名**: `slackbot-app`
-- **リージョン**: `Japan East`
-- **コンテナー アプリ環境**: `slackbot-aca-env`
-
-**コンテナー タブ**:
-
-- **イメージ ソース**: `Azure Container Registry`
-- **レジストリ**: 作成した ACR を選択
-- **イメージ**: `slackbot-sample` (初回は後で更新)
-- **イメージ タグ**: `1` または `latest`
-- **CPU コア**: `0.5` / **メモリ (Gi)**: `1.0`
-
-**イングレス タブ**:
-
-- **イングレス**: `有効` / **イングレス トラフィック**: `内部のみ`
-- **ターゲット ポート**: `3000`
-
-**シークレット・環境変数タブ**: 初期作成時はスキップ (後で Key Vault 同期時に設定)
-
-**スケール タブ**:
-
-- **最小レプリカ数**: `1` / **最大レプリカ数**: `1`
-
-3. **確認および作成** → **作成**
-
-#### Managed Identity の有効化
-
-1. 作成した Container App を開く → 左メニュー **ID** → **システム割り当て** を **オン** → **保存**
-2. **オブジェクト (プリンシパル) ID** をコピー
-
-#### Key Vault アクセス権付与
-
-1. Key Vault を開く → **アクセス制御 (IAM)** → **+ 追加** → **ロールの割り当ての追加**
-2. **ロール**: `Key Vault Secrets User` → **メンバー**: `slackbot-app` (Managed Identity) → **割り当て**
-
-#### シークレット同期
-
-CLI で Key Vault から取得して Container App に反映 (上記 6.6 の CLI コマンドを実行)。
-
----
-
-## 7. シークレットの更新・ローテーション
+## 8. シークレットの更新・ローテーション
 
 Slack トークンやその他のシークレットを更新する場合の手順です。Key Vault を単一ソースとして管理します。
 
@@ -922,7 +708,7 @@ Slack トークンやその他のシークレットを更新する場合の手�
    az keyvault secret set --vault-name kv-slackbot-aca --name slack-bot-token --value <NEW_TOKEN>
    ```
 
-2. **Container App に同期** (6.6 の同期手順を再実行):
+2. **Container App に同期** (7.6 の同期手順を再実行):
 
    ```bash
    SLACK_BOT_TOKEN=$(az keyvault secret show --vault-name kv-slackbot-aca --name slack-bot-token --query value -o tsv)
@@ -942,21 +728,13 @@ Slack トークンやその他のシークレットを更新する場合の手�
 
 > **📝 補足**: CI/CD が設定されている場合は、次回デプロイ時に自動的に同期されます。即時反映が必要な場合のみ手動で上記を実行してください。
 
-### Portal を使用する場合
-
-1. Key Vault でシークレットを更新 (Portal の Key Vault → シークレット)
-2. CLI で同期コマンドを実行 (上記手順 2)
-3. または Container App の **シークレット** タブで手動更新 (Key Vault から値をコピー)
-
 ---
 
-## 8. デプロイの確認
+## 9. デプロイの確認
 
 デプロイが正常に完了したかを確認します。
 
-### Azure CLI を使用する場合
-
-#### ステータスの確認
+### ステータスの確認
 
 ```bash
 az containerapp show \
@@ -967,7 +745,7 @@ az containerapp show \
 
 `"Succeeded"` が表示されれば成功です。
 
-#### ログの確認
+### ログの確認
 
 ```bash
 az containerapp logs show \
@@ -983,125 +761,9 @@ az containerapp logs show \
 ⚡️ Slack Bot is running!
 ```
 
-### Azure Portal を使用する場合
-
-#### ステータスの確認
-
-1. Azure Portal で Container Apps (`slackbot-app`) を開く
-2. **概要** ページでステータスを確認
-3. **実行状態** が `実行中` になっていることを確認
-
-#### ログの確認
-
-1. 左メニューから **ログ ストリーム** または **監視** → **ログ** を選択
-2. 以下のようなログが表示されれば成功:
-
-```
-✅ Slack auth test success: { ok: true, ... }
-⚡️ Slack Bot is running!
-```
-
-#### Log Analytics でのログクエリ
-
-より詳細なログを確認する場合:
-
-1. 左メニューから **ログ** を選択
-2. 以下のクエリを実行:
-
-```kusto
-ContainerAppConsoleLogs_CL
-| where ContainerAppName_s == "slackbot-app"
-| order by TimeGenerated desc
-| take 50
-```
-
 ---
 
-## リソース一覧
-
-作成した Azure リソース:
-
-| リソースタイプ             | 名前 (例)                    | 説明                              |
-| -------------------------- | ---------------------------- | --------------------------------- |
-| Resource Group             | `rg-slackbot-aca`            | すべてのリソースを格納            |
-| Container Registry         | `<YOUR_ACR_NAME>.azurecr.io` | Docker イメージを保存             |
-| Container Apps Environment | `slackbot-aca-env`           | Container Apps の実行環境         |
-| Container Apps             | `slackbot-app`               | Slack Bot アプリケーション        |
-| Log Analytics Workspace    | `(自動生成)`                 | ログとメトリクスの保存 (自動作成) |
-
----
-
-## コスト管理
-
-### 推奨設定
-
-- **Container Apps**: 最小レプリカ 1、最大レプリカ 1 (常時起動)
-- **CPU**: 0.5 vCPU
-- **メモリ**: 1.0 GiB
-
-### コストの確認 (Azure Portal)
-
-1. Azure Portal で **コスト管理 + 課金** を検索
-2. **コスト分析** で使用状況を確認
-3. リソース グループ `rg-slackbot-aca` でフィルタリング
-
-### コスト削減のヒント
-
-開発・テスト環境では、以下のように設定してコストを削減できます:
-
-#### Azure CLI を使用する場合
-
-```bash
-az containerapp update \
-  --name slackbot-app \
-  --resource-group rg-slackbot-aca \
-  --min-replicas 0 \
-  --max-replicas 1
-```
-
-#### Azure Portal を使用する場合
-
-1. Container Apps を開く
-2. **概要** → **停止** をクリック (使用しない時間帯)
-3. 使用時に **開始** をクリック
-
-> **⚠️ 注意**: `min-replicas 0` にすると、リクエストがないときはスケールダウンしますが、Socket Mode では常時接続が必要なため、ボットが反応しなくなります。
-
----
-
-## トラブルシューティング
-
-### Container Apps が起動しない
-
-**確認項目**:
-
-1. **イメージが存在するか確認**
-
-   - ACR でイメージがプッシュされているか確認
-   - GitHub Actions で初回デプロイを実行
-
-2. **レジストリの認証情報を確認**
-
-   - ACR の管理者ユーザーが有効になっているか確認
-
-3. **リビジョンの確認**
-   - Azure Portal: **リビジョン管理** で失敗したリビジョンのログを確認
-   - Azure CLI: `az containerapp revision list --name slackbot-app --resource-group rg-slackbot-aca`
-
-### ログが表示されない
-
-**確認項目**:
-
-1. **Log Analytics の接続を確認**
-
-   - Container Apps Environment で Log Analytics が正しく設定されているか確認
-
-2. **診断設定を確認**
-   - Azure Portal: **監視** → **診断設定** で診断ログが有効になっているか確認
-
----
-
-## 9. 追加のセキュリティ設定 (オプション)
+## 10. 追加のセキュリティ設定 (オプション)
 
 基本的な VNET 統合に加え、さらなるセキュリティ強化のための設定です。
 
@@ -1109,7 +771,7 @@ az containerapp update \
 
 将来、Azure Database などのリソースに接続する場合のプライベートエンドポイント設定例です。
 
-#### Azure Database for PostgreSQL の例 (CLI)
+#### Azure Database for PostgreSQL の例
 
 ```bash
 # プライベートエンドポイントの作成
@@ -1144,27 +806,7 @@ az network private-endpoint dns-zone-group create \
   --zone-name postgres
 ```
 
-#### Azure Database の例 (Portal)
-
-1. Azure Database for PostgreSQL を作成
-2. **ネットワーク** → **プライベート エンドポイント接続**
-3. **+ プライベート エンドポイント** をクリック
-4. 以下を設定:
-   - **リソース グループ**: `rg-slackbot-aca`
-   - **名前**: `postgres-private-endpoint`
-   - **リージョン**: `Japan East`
-5. **リソース** タブ:
-   - **ターゲット サブリソース**: `postgresqlServer`
-6. **仮想ネットワーク** タブ:
-   - **仮想ネットワーク**: `slackbot-aca-vnet`
-   - **サブネット**: `database-subnet`
-7. **DNS** タブ:
-   - **プライベート DNS ゾーンと統合する**: `はい`
-8. **確認および作成** → **作成**
-
-### セキュリティのベストプラクティス
-
-#### 1. ネットワークセキュリティグループ (NSG) の設定
+### ネットワークセキュリティグループ (NSG) の設定
 
 ```bash
 # NSG の作成
@@ -1193,7 +835,7 @@ az network vnet subnet update \
   --network-security-group aca-nsg
 ```
 
-#### 2. マネージド ID の使用
+### マネージド ID で ACR にアクセス
 
 パスワードを使用せず、マネージド ID で ACR にアクセス:
 
@@ -1222,29 +864,6 @@ az role assignment create \
   --scope $ACR_ID
 ```
 
-#### 3. Azure Key Vault でシークレット管理
-
-```bash
-# Key Vault の作成
-az keyvault create \
-  --name slackbot-kv \
-  --resource-group rg-slackbot-aca \
-  --location japaneast \
-  --enable-rbac-authorization false
-
-# シークレットの追加
-az keyvault secret set \
-  --vault-name slackbot-kv \
-  --name slack-bot-token \
-  --value <SLACK_BOT_TOKEN>
-
-# Container Apps からのアクセスを許可
-az keyvault set-policy \
-  --name slackbot-kv \
-  --object-id $PRINCIPAL_ID \
-  --secret-permissions get list
-```
-
 ### セキュリティチェックリスト
 
 実装後、以下の項目を確認してください:
@@ -1257,6 +876,54 @@ az keyvault set-policy \
 - [ ] 診断ログが有効化されている
 - [ ] 最小権限の原則に従ってロールが割り当てられている
 
+---
+
+## リソース一覧
+
+作成した Azure リソース:
+
+| リソースタイプ             | 名前 (例)                    | 説明                                      |
+| -------------------------- | ---------------------------- | ----------------------------------------- |
+| Resource Group             | `rg-slackbot-aca`            | すべてのリソースを格納                    |
+| Container Registry         | `<YOUR_ACR_NAME>.azurecr.io` | Docker イメージを保存                     |
+| Virtual Network            | `slackbot-aca-vnet`          | Container Apps を配置する仮想ネットワーク |
+| Log Analytics Workspace    | `ws-slackapp-aca`            | ログとメトリクスの保存                    |
+| Container Apps Environment | `slackbot-aca-env`           | Container Apps の実行環境                 |
+| Container Apps             | `slackbot-app`               | Slack Bot アプリケーション                |
+| Key Vault                  | `kv-slackbot-aca`            | シークレット管理                          |
+
+---
+
+## コスト管理
+
+### 推奨設定
+
+- **Container Apps**: 最小レプリカ 1、最大レプリカ 1 (常時起動)
+- **CPU**: 0.5 vCPU
+- **メモリ**: 1.0 GiB
+
+### コスト削減のヒント
+
+開発・テスト環境では、以下のように設定してコストを削減できます:
+
+```bash
+az containerapp update \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --min-replicas 0 \
+  --max-replicas 1
+```
+
+> **⚠️ 注意**: `min-replicas 0` にすると、リクエストがないときはスケールダウンしますが、Socket Mode では常時接続が必要なため、ボットが反応しなくなります。
+
+### コストの確認
+
+```bash
+az consumption usage list \
+  --query "[?contains(instanceName, 'slackbot')].{Name:instanceName, Cost:pretaxCost}" \
+  --output table
+```
+
 ### コスト影響
 
 VNET 統合による追加コスト:
@@ -1267,6 +934,84 @@ VNET 統合による追加コスト:
 | プライベートエンドポイント | 約 ¥1,000/月 (エンドポイントあたり) |
 | NSG                        | 無料                                |
 | Key Vault                  | 約 ¥500/月 + トランザクション料金   |
+
+---
+
+## トラブルシューティング
+
+### Container Apps が起動しない
+
+**確認項目**:
+
+1. **イメージが存在するか確認**
+
+   ```bash
+   az acr repository show \
+     --name <YOUR_ACR_NAME> \
+     --repository slackbot-sample
+   ```
+
+2. **レジストリの認証情報を確認**
+
+   ```bash
+   az acr show \
+     --name <YOUR_ACR_NAME> \
+     --query adminUserEnabled
+   ```
+
+3. **リビジョンの確認**
+   ```bash
+   az containerapp revision list \
+     --name slackbot-app \
+     --resource-group rg-slackbot-aca
+   ```
+
+### ログが表示されない
+
+**確認項目**:
+
+1. **Log Analytics の接続を確認**
+
+   ```bash
+   az containerapp env show \
+     --name slackbot-aca-env \
+     --resource-group rg-slackbot-aca \
+     --query properties.appLogsConfiguration
+   ```
+
+2. **最新ログを表示**
+   ```bash
+   az containerapp logs show \
+     --name slackbot-app \
+     --resource-group rg-slackbot-aca \
+     --tail 50
+   ```
+
+### Key Vault アクセスエラー
+
+**確認項目**:
+
+1. **Managed Identity が付与されているか確認**
+
+   ```bash
+   az containerapp show \
+     --name slackbot-app \
+     --resource-group rg-slackbot-aca \
+     --query identity
+   ```
+
+2. **ロール割り当てを確認**
+
+   ```bash
+   APP_PRINCIPAL_ID=$(az containerapp show \
+     --name slackbot-app \
+     --resource-group rg-slackbot-aca \
+     --query identity.principalId -o tsv)
+
+   az role assignment list \
+     --assignee $APP_PRINCIPAL_ID \
+     --all
+   ```
 
 ---
 
