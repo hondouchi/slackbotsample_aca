@@ -285,7 +285,7 @@ sequenceDiagram
 - **[Slack アプリの作成](docs/setup-slack.md)** - Slack Bot の作成と設定手順
 - **[Azure リソースの作成 (CLI 版)](docs/setup-azure_cli.md)** - Azure CLI を使用した詳細手順とベストプラクティス (推奨)
 - **[Azure リソースの作成 (Portal 版)](docs/setup-azure_portal.md)** - Azure Portal を使用したリソース作成手順
-- **[GitHub の設定](docs/setup-github.md)** - CI/CD パイプラインの設定手順
+- **[GitHub Actions による CI/CD 設定](docs/setup-cicd-app.md)** - Federated Identity と Key Vault を使用した安全な自動デプロイ
 
 ### 開発ガイド
 
@@ -310,7 +310,7 @@ slackbotsample_aca/
 │   ├── setup-slack.md
 │   ├── setup-azure_cli.md     # Azure CLI 版セットアップ (推奨)
 │   ├── setup-azure_portal.md  # Azure Portal 版セットアップ
-│   ├── setup-github.md
+│   ├── setup-cicd-app.md      # GitHub Actions CI/CD 設定
 │   ├── local-development.md
 │   ├── deployment.md
 │   └── troubleshooting.md
