@@ -3,7 +3,7 @@ name: Deploy to Azure Container Apps (Production)
 on:
   push:
     branches:
-      - main
+      - main  # 本番デプロイは main ブランチのみ
     paths:
       - 'app.js'
       - 'package.json'
@@ -13,7 +13,6 @@ on:
       - 'src/**'
       - 'lib/**'
       - 'config/**'
-      - '.github/workflows/deploy-production.yml'
     paths-ignore:
       - 'README.md'
       - 'docs/**'
@@ -21,6 +20,7 @@ on:
       - '*.md'
       - '.gitignore'
       - 'LICENSE'
+      - '.github/**'  # ワークフローファイル自体の変更では実行しない
 
 permissions:
   id-token: write # Federated Identity 用
