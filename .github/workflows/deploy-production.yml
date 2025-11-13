@@ -1,91 +1,112 @@
-name: Deploy to ACA (Production)
+name: Deploy to Azure Container Apps (Production)
 
 on:
   push:
     branches:
       - main
+    paths:
+      - 'app.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'src/**'
+      - 'lib/**'
+      - 'config/**'
+      - '.github/workflows/deploy-production.yml'
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - 'terraform/**'
+      - '*.md'
+      - '.gitignore'
+      - 'LICENSE'
+
+permissions:
+  id-token: write # Federated Identity 用
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     env:
-      ACR_NAME: slackbotaca
+      ACR_NAME: slackbotacaacr
       IMAGE_NAME: slackbot-sample
-      CONTAINER_APP_NAME: slackbot-acasample
-      RESOURCE_GROUP: hondouchi-slackbot-aca
-      # Optional: Set to your Key Vault name to enable secret sync step below
-      KV_NAME: kv-slackbot-aca
+      CONTAINER_APP_NAME: slackbot-sample-app
+      RESOURCE_GROUP: rg-slackbot-aca-cli
+      KEY_VAULT_NAME: kv-slackbot-aca-cli
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Log in to Azure
-        uses: azure/login@v1
+      - name: Log in to Azure using Federated Identity
+        uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Get next version tag
-        id: get_version
+      - name: Get next version tag from ACR
+        id: version
         run: |
+          # 既存のタグ一覧を取得
           TAGS=$(az acr repository show-tags \
-            --name $ACR_NAME \
-            --repository $IMAGE_NAME \
-            --output tsv | grep -E '^[0-9]+$' || echo "")
-          if [ -z "$TAGS" ]; then
-            NEXT_VERSION=1
-          else
-            NEXT_VERSION=$(echo "$TAGS" | sort -n | tail -n 1)
-            NEXT_VERSION=$((NEXT_VERSION + 1))
-          fi
-          echo "next_version=$NEXT_VERSION" >> $GITHUB_OUTPUT
+            --name ${{ env.ACR_NAME }} \
+            --repository ${{ env.IMAGE_NAME }} \
+            --orderby time_desc \
+            --output tsv 2>/dev/null || echo "")
 
-      - name: Docker login to ACR
+          if [ -z "$TAGS" ]; then
+            # タグが存在しない場合は v1 から開始
+            NEXT_VERSION="1"
+          else
+            # 最新のタグから次のバージョンを計算
+            LATEST_TAG=$(echo "$TAGS" | head -n 1)
+            LATEST_VERSION=$(echo $LATEST_TAG | sed 's/v//' | sed 's/[^0-9]*//g')
+            NEXT_VERSION=$((LATEST_VERSION + 1))
+          fi
+
+          echo "next_version=$NEXT_VERSION" >> $GITHUB_OUTPUT
+          echo "Next version: v$NEXT_VERSION"
+
+      - name: Log in to Azure Container Registry (Managed Identity)
         run: |
-          echo "${{ secrets.ACR_PASSWORD }}" | docker login $ACR_NAME.azurecr.io \
-            --username ${{ secrets.ACR_USERNAME }} \
-            --password-stdin
+          az acr login --name ${{ env.ACR_NAME }}
 
       - name: Build and push Docker image
         run: |
-          VERSION=${{ steps.get_version.outputs.next_version }}
-          IMAGE_URI=$ACR_NAME.azurecr.io/$IMAGE_NAME:$VERSION
-          docker build -t $IMAGE_URI .
-          docker push $IMAGE_URI
+          VERSION=${{ steps.version.outputs.next_version }}
+          IMAGE_TAG="${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:v${VERSION}"
+          IMAGE_LATEST="${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest"
 
-      # --- Optional Key Vault -> Container Apps secret sync (uncomment to enable) ---
-      - name: Sync secrets from Key Vault (optional)
-        if: env.KV_NAME != ''
-        run: |
-          echo "[INFO] Fetching secrets from Key Vault: $KV_NAME"
-          SLACK_BOT_TOKEN=$(az keyvault secret show --vault-name $KV_NAME --name slack-bot-token --query value -o tsv || echo '')
-          SLACK_APP_TOKEN=$(az keyvault secret show --vault-name $KV_NAME --name slack-app-token --query value -o tsv || echo '')
-          BOT_USER_ID=$(az keyvault secret show --vault-name $KV_NAME --name bot-user-id --query value -o tsv || echo '')
-          if [ -z "$SLACK_BOT_TOKEN" ] || [ -z "$SLACK_APP_TOKEN" ] || [ -z "$BOT_USER_ID" ]; then
-            echo "[WARN] One or more secrets missing in Key Vault; skipping secret set."; exit 1
-          fi
-          az containerapp secret set \
-            --name $CONTAINER_APP_NAME \
-            --resource-group $RESOURCE_GROUP \
-            --secrets \
-              slack-bot-token=$SLACK_BOT_TOKEN \
-              slack-app-token=$SLACK_APP_TOKEN \
-              bot-user-id=$BOT_USER_ID
-          az containerapp update \
-            --name $CONTAINER_APP_NAME \
-            --resource-group $RESOURCE_GROUP \
-            --env-vars \
-              SLACK_BOT_TOKEN=secretref:slack-bot-token \
-              SLACK_APP_TOKEN=secretref:slack-app-token \
-              BOT_USER_ID=secretref:bot-user-id
-          echo "[INFO] Key Vault secrets synced to Container App"
+          docker build -t $IMAGE_TAG -t $IMAGE_LATEST .
+          docker push $IMAGE_TAG
+          docker push $IMAGE_LATEST
 
-      - name: Deploy to ACA
+          echo "Pushed image: $IMAGE_TAG"
+          echo "Pushed image: $IMAGE_LATEST"
+
+      - name: Update Container App
         run: |
-          VERSION=${{ steps.get_version.outputs.next_version }}
-          IMAGE_URI=$ACR_NAME.azurecr.io/$IMAGE_NAME:$VERSION
+          VERSION=${{ steps.version.outputs.next_version }}
+          IMAGE_TAG="${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:v${VERSION}"
+
           az containerapp update \
-            --name $CONTAINER_APP_NAME \
-            --resource-group $RESOURCE_GROUP \
-            --image $IMAGE_URI
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image $IMAGE_TAG \
+            --output table
+
+      - name: Verify deployment
+        run: |
+          echo "Deployment completed successfully!"
+          echo "Image: ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:v${{ steps.version.outputs.next_version }}"
+
+          # Container App の状態確認
+          az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "properties.{ProvisioningState:provisioningState, RunningStatus:runningStatus, LatestRevision:latestRevisionName}" \
+            --output table
