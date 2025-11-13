@@ -287,6 +287,19 @@ sequenceDiagram
 - **[Azure リソースの作成 (Portal 版)](docs/setup-azure_portal.md)** - Azure Portal を使用したリソース作成手順
 - **[GitHub Actions による CI/CD 設定](docs/setup-cicd-app.md)** - Federated Identity と Key Vault を使用した安全な自動デプロイ
 
+#### CI/CD 権限要件
+
+GitHub Actions でデプロイを行うには、サービスプリンシパルに以下の権限が必要です:
+
+| 権限                           | 用途                                    |
+| ------------------------------ | --------------------------------------- |
+| **Reader**                     | ACR の情報読み取り (`az acr show` など) |
+| **AcrPush**                    | ACR へのコンテナイメージ push           |
+| **Container Apps Contributor** | Container Apps の更新                   |
+| **Key Vault Secrets Officer**  | Key Vault のシークレット管理            |
+
+詳細な設定手順は [GitHub Actions による CI/CD 設定](docs/setup-cicd-app.md) を参照してください。
+
 ### 開発ガイド
 
 - **[ローカル開発環境](docs/local-development.md)** - ローカルでの開発・デバッグ方法
