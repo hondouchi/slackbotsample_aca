@@ -48,10 +48,16 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Verify ACR access
+        run: |
+          echo "Verifying ACR: ${{ env.ACR_NAME }}"
+          az acr show --name ${{ env.ACR_NAME }} --query "{Name:name, LoginServer:loginServer}" -o table
+
       - name: Get next version tag from ACR
         id: version
         run: |
           # 既存のタグ一覧を取得
+          echo "Checking existing tags in repository: ${{ env.IMAGE_NAME }}"
           TAGS=$(az acr repository show-tags \
             --name ${{ env.ACR_NAME }} \
             --repository ${{ env.IMAGE_NAME }} \
@@ -60,10 +66,12 @@ jobs:
 
           if [ -z "$TAGS" ]; then
             # タグが存在しない場合は v1 から開始
+            echo "No existing tags found. Starting with v1"
             NEXT_VERSION="1"
           else
             # 最新のタグから次のバージョンを計算
             LATEST_TAG=$(echo "$TAGS" | head -n 1)
+            echo "Latest tag: $LATEST_TAG"
             LATEST_VERSION=$(echo $LATEST_TAG | sed 's/v//' | sed 's/[^0-9]*//g')
             NEXT_VERSION=$((LATEST_VERSION + 1))
           fi
@@ -71,8 +79,9 @@ jobs:
           echo "next_version=$NEXT_VERSION" >> $GITHUB_OUTPUT
           echo "Next version: v$NEXT_VERSION"
 
-      - name: Log in to Azure Container Registry (Managed Identity)
+      - name: Log in to Azure Container Registry
         run: |
+          echo "Logging in to ACR: ${{ env.ACR_NAME }}"
           az acr login --name ${{ env.ACR_NAME }}
 
       - name: Build and push Docker image
