@@ -28,6 +28,8 @@ app.message(async ({ message, say }) => {
     const content = message.text.replace(botMention, '').trim();
     const threadId = message.thread_ts || message.ts;
 
+    console.log(`💬 Content after removing mention: "${content}"`);
+
     // /version コマンド
     if (content === '/version') {
       console.log('--- Handling /version command ---');
