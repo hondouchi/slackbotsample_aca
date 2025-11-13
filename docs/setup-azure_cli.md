@@ -17,16 +17,19 @@
    - 7.1 Key Vault の作成
    - 7.2 Key Vault にシークレットを登録
    - 7.3 Container App の作成
-   - 7.4 Managed Identity の付与
+   - 7.4 ACR へのアクセス権付与
    - 7.5 Key Vault アクセス権の付与
    - 7.6 シークレット同期
-   - 7.7 アプリコードから直接取得 (オプション)
-9. [シークレットの更新・ローテーション](#8-シークレットの更新ローテーション)
-10. [デプロイの確認](#9-デプロイの確認)
-11. [追加のセキュリティ設定](#10-追加のセキュリティ設定-オプション)
-12. [リソース一覧](#リソース一覧)
-13. [コスト管理](#コスト管理)
-14. [トラブルシューティング](#トラブルシューティング)
+9. [デプロイの確認](#8-デプロイの確認)
+10. [追加の設定 (オプション)](#9-追加の設定オプション)
+    - 9.1 シークレットの更新・ローテーション
+    - 9.2 SDK を使った Key Vault 直接アクセス
+    - 9.3 プライベートエンドポイント設定
+    - 9.4 ネットワークセキュリティグループ (NSG)
+    - 9.5 セキュリティチェックリスト
+11. [リソース一覧](#10-リソース一覧)
+12. [コスト管理](#11-コスト管理)
+13. [トラブルシューティング](#12-トラブルシューティング)
 
 ---
 
@@ -799,7 +802,7 @@ az role assignment create \
 
 Key Vault に保存したシークレットを Container App に反映します。ここでは **CLI 同期パターン** を使用します (Key Vault から値を取得 → Container App のシークレットに設定)。
 
-> **🔄 同期パターンについて**: Container Apps は Key Vault シークレットの自動同期機能がないため、更新時に手動で再同期するか、アプリコードで Managed Identity + SDK を使って直接取得する方式があります。ここでは運用が単純な CLI 同期方式を採用します。SDK 方式は 7.7 で説明します。
+> **🔄 同期パターンについて**: Container Apps は Key Vault シークレットの自動同期機能がないため、更新時に手動で再同期するか、アプリコードで Managed Identity + SDK を使って直接取得する方式があります。ここでは運用が単純な CLI 同期方式を採用します。SDK 方式は [9.2 節](#92-sdk-を使った-key-vault-直接アクセス) を参照してください。
 
 ```bash
 # Key Vault から最新値を取得して Container App のシークレットに反映
@@ -834,50 +837,161 @@ az containerapp update \
 
 > **📝 Note**: `--set-env-vars` は複数の環境変数を同時に設定できませんので、各環境変数を個別に実行する必要があります。
 
-### 7.7 アプリコードから直接取得する方式 (代替案・オプション)
-
-CLI 同期の代わりに、アプリケーション起動時に Key Vault から直接シークレットを取得する方式です。ローテーション時の自動反映が可能ですが、SDK 依存が増えます。
-
-**Node.js 例 (Managed Identity + Azure SDK)**:
-
-```javascript
-// package.json に "@azure/identity", "@azure/keyvault-secrets" を追加
-import { DefaultAzureCredential } from '@azure/identity';
-import { SecretClient } from '@azure/keyvault-secrets';
-
-const credential = new DefaultAzureCredential();
-const vaultUrl = 'https://kv-slackbot-aca.vault.azure.net';
-const client = new SecretClient(vaultUrl, credential);
-
-async function loadSecrets() {
-  const slackBotToken = await client.getSecret('slack-bot-token');
-  const slackAppToken = await client.getSecret('slack-app-token');
-  const botUserId = await client.getSecret('bot-user-id');
-  return {
-    SLACK_BOT_TOKEN: slackBotToken.value,
-    SLACK_APP_TOKEN: slackAppToken.value,
-    BOT_USER_ID: botUserId.value,
-  };
-}
-
-loadSecrets().then((secrets) => {
-  console.log('Secrets loaded', Object.keys(secrets));
-});
-```
-
-> **📝 補足**: この方式では `package.json` に `@azure/identity` と `@azure/keyvault-secrets` を追加し、アプリケーションコードを修正する必要があります。CLI 同期方式が運用上シンプルなため、本ガイドでは CLI 同期を推奨します。
-
-> **🔁 ローテーション運用**: Slack トークンが更新されたら Key Vault の値を差し替え → 次回 CI/CD 実行時に自動反映。即時反映したい場合は手動で同期コマンドを実行。
-
-> **🔐 CI/CD でのシークレット同期**: GitHub Actions から Key Vault へアクセスする場合は、サービスプリンシパルに `Key Vault Secrets Officer` ロールを付与する必要があります。詳細は [GitHub の設定](setup-github.md) を参照してください。
+> **🔄 代替案**: CLI 同期の代わりに、アプリコードから Key Vault SDK を使ってシークレットを直接取得する方式もあります。詳細は [9.2 SDK を使った Key Vault 直接アクセス](#92-sdk-を使った-key-vault-直接アクセス) を参照してください。
 
 ---
 
-## 8. シークレットの更新・ローテーション
+## 8. デプロイの確認
+
+Container App が正しく構成され、動作していることを確認します。
+
+### 8.1 リソース作成状態の確認
+
+#### Container App のプロビジョニング状態
+
+```bash
+az containerapp show \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --query properties.provisioningState
+```
+
+**期待される出力**: `"Succeeded"`
+
+#### Managed Identity の確認
+
+```bash
+az containerapp show \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --query "identity.{type:type, principalId:principalId}"
+```
+
+**期待される出力**:
+
+```json
+{
+  "principalId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "type": "SystemAssigned"
+}
+```
+
+### 8.2 権限設定の確認
+
+#### ACR への権限
+
+```bash
+APP_PRINCIPAL_ID=$(az containerapp show --name slackbot-app --resource-group rg-slackbot-aca --query identity.principalId -o tsv)
+
+az role assignment list \
+  --assignee $APP_PRINCIPAL_ID \
+  --query "[?roleDefinitionName=='AcrPull'].{Role:roleDefinitionName, Scope:scope}" \
+  --output table
+```
+
+**期待される出力**: ACR リソースへの `AcrPull` ロール割り当てが表示される
+
+#### Key Vault への権限
+
+```bash
+az role assignment list \
+  --assignee $APP_PRINCIPAL_ID \
+  --query "[?roleDefinitionName=='Key Vault Secrets User'].{Role:roleDefinitionName, Scope:scope}" \
+  --output table
+```
+
+**期待される出力**: Key Vault リソースへの `Key Vault Secrets User` ロール割り当てが表示される
+
+### 8.3 環境変数とシークレットの確認
+
+#### シークレット登録の確認
+
+```bash
+az containerapp secret list \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --query "[].name" \
+  --output table
+```
+
+**期待される出力**:
+
+```
+Result
+------------------
+slack-bot-token
+slack-app-token
+bot-user-id
+```
+
+#### 環境変数の確認
+
+```bash
+az containerapp show \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --query "properties.template.containers[0].env[].{Name:name, SecretRef:secretRef}" \
+  --output table
+```
+
+**期待される出力**:
+
+```
+Name               SecretRef
+-----------------  ------------------
+SLACK_BOT_TOKEN    slack-bot-token
+SLACK_APP_TOKEN    slack-app-token
+BOT_USER_ID        bot-user-id
+```
+
+### 8.4 アプリケーションログの確認
+
+Container App が正常に起動し、Slack に接続できているかログで確認します。
+
+```bash
+az containerapp logs show \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --follow
+```
+
+**期待されるログ出力**:
+
+```
+✅ Slack auth test success: { ok: true, ... }
+⚡️ Slack Bot is running!
+```
+
+### 8.5 トラブルシューティング
+
+#### ログにエラーが表示される場合
+
+**認証エラー**: `invalid_auth` や `not_authed`
+
+- Key Vault のシークレット値が正しいか確認
+- 環境変数が正しく設定されているか確認 (8.3 参照)
+
+**Key Vault アクセスエラー**: `403 Forbidden`
+
+- Managed Identity に `Key Vault Secrets User` ロールが付与されているか確認 (8.2 参照)
+- ロール伝播に時間がかかる場合があります (5〜10 分待機)
+
+**イメージ Pull エラー**: `ImagePullBackOff`
+
+- Managed Identity に `AcrPull` ロールが付与されているか確認 (8.2 参照)
+- ACR にイメージが存在するか確認: `az acr repository show-tags --name <YOUR_ACR_NAME> --repository slackbot-sample`
+
+---
+
+## 9. 追加の設定 (オプション)
+
+基本的なデプロイ完了後、必要に応じて実施する追加設定です。
+
+### 9.1 シークレットの更新・ローテーション
 
 Slack トークンやその他のシークレットを更新する場合の手順です。Key Vault を単一ソースとして管理します。
 
-### 更新手順 (推奨フロー)
+#### 更新手順 (推奨フロー)
 
 1. **Key Vault でシークレットを更新**:
 
@@ -905,46 +1019,65 @@ Slack トークンやその他のシークレットを更新する場合の手�
 
 > **📝 補足**: CI/CD が設定されている場合は、次回デプロイ時に自動的に同期されます。即時反映が必要な場合のみ手動で上記を実行してください。
 
----
+### 9.2 SDK を使った Key Vault 直接アクセス
 
-## 9. デプロイの確認
+CLI 同期の代わりに、アプリケーション起動時に Key Vault から直接シークレットを取得する方式です。ローテーション時の自動反映が可能ですが、SDK 依存が増えます。
 
-デプロイが正常に完了したかを確認します。
+#### メリット・デメリット
 
-### ステータスの確認
+| 方式             | メリット                             | デメリット                         |
+| ---------------- | ------------------------------------ | ---------------------------------- |
+| CLI 同期 (推奨)  | 運用がシンプル、アプリコード変更不要 | シークレット更新時に手動同期が必要 |
+| SDK 直接アクセス | シークレット更新時の自動反映         | SDK 依存追加、アプリコード変更必要 |
 
-```bash
-az containerapp show \
-  --name slackbot-app \
-  --resource-group rg-slackbot-aca \
-  --query properties.provisioningState
-```
+#### Node.js 実装例 (Managed Identity + Azure SDK)
 
-`"Succeeded"` が表示されれば成功です。
-
-### ログの確認
+**1. パッケージのインストール**:
 
 ```bash
-az containerapp logs show \
-  --name slackbot-app \
-  --resource-group rg-slackbot-aca \
-  --follow
+npm install @azure/identity @azure/keyvault-secrets
 ```
 
-以下のようなログが表示されれば成功:
+**2. アプリケーションコード**:
 
+```javascript
+import { DefaultAzureCredential } from '@azure/identity';
+import { SecretClient } from '@azure/keyvault-secrets';
+
+const credential = new DefaultAzureCredential();
+const vaultUrl = 'https://kv-slackbot-aca.vault.azure.net';
+const client = new SecretClient(vaultUrl, credential);
+
+async function loadSecrets() {
+  const slackBotToken = await client.getSecret('slack-bot-token');
+  const slackAppToken = await client.getSecret('slack-app-token');
+  const botUserId = await client.getSecret('bot-user-id');
+
+  return {
+    SLACK_BOT_TOKEN: slackBotToken.value,
+    SLACK_APP_TOKEN: slackAppToken.value,
+    BOT_USER_ID: botUserId.value,
+  };
+}
+
+// アプリケーション起動時に実行
+loadSecrets()
+  .then((secrets) => {
+    console.log('Secrets loaded from Key Vault');
+    // Slack Bot を初期化
+    // ...
+  })
+  .catch((error) => {
+    console.error('Failed to load secrets:', error);
+    process.exit(1);
+  });
 ```
-✅ Slack auth test success: { ok: true, ... }
-⚡️ Slack Bot is running!
-```
 
----
+> **📝 Note**: この方式では Managed Identity の `Key Vault Secrets User` 権限が必要です (7.5 で設定済み)。
 
-## 10. 追加のセキュリティ設定 (オプション)
+> **🔁 ローテーション運用**: Key Vault でシークレットを更新 → Container App を再起動すれば、自動的に最新値を取得します。
 
-基本的な VNET 統合に加え、さらなるセキュリティ強化のための設定です。
-
-### プライベートエンドポイントの設定
+### 9.3 プライベートエンドポイント設定
 
 将来、Azure Database などのリソースに接続する場合のプライベートエンドポイント設定例です。
 
@@ -983,7 +1116,7 @@ az network private-endpoint dns-zone-group create \
   --zone-name postgres
 ```
 
-### ネットワークセキュリティグループ (NSG) の設定
+### 9.4 ネットワークセキュリティグループ (NSG)
 
 ```bash
 # NSG の作成
@@ -1012,7 +1145,7 @@ az network vnet subnet update \
   --network-security-group aca-nsg
 ```
 
-### セキュリティチェックリスト
+### 9.5 セキュリティチェックリスト
 
 実装後、以下の項目を確認してください:
 
@@ -1038,7 +1171,7 @@ az network vnet subnet update \
 
 ---
 
-## リソース一覧
+## 10. リソース一覧
 
 作成した Azure リソース:
 
@@ -1054,7 +1187,7 @@ az network vnet subnet update \
 
 ---
 
-## コスト管理
+## 11. コスト管理
 
 ### 推奨設定
 
@@ -1097,7 +1230,7 @@ VNET 統合による追加コスト:
 
 ---
 
-## トラブルシューティング
+## 12. トラブルシューティング
 
 ### Container Apps が起動しない
 
