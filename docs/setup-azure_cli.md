@@ -24,26 +24,53 @@
 10. [追加の設定 (オプション)](#9-追加の設定オプション)
     - 9.1 シークレットの更新・ローテーション
     - 9.2 SDK を使った Key Vault 直接アクセス
-    - 9.3 プライベートエンドポイント設定
+    - 9.3 Key Vault プライベートエンドポイント設定 (オプション)
     - 9.4 ネットワークセキュリティグループ (NSG)
     - 9.5 セキュリティチェックリスト
     - 9.6 ヘルスプローブ設定
-
-- 9.7 イメージのクリーンアップ運用 (推奨)
-- 9.8 Premium SKU の追加機能 (オプション)
-
-11. [リソース一覧](#10-リソース一覧)
-12. [コスト管理](#11-コスト管理)
-13. [トラブルシューティング](#12-トラブルシューティング)
+    - 9.7 イメージのクリーンアップ運用 (推奨)
+    - 9.8 Premium SKU の追加機能 (オプション)
+11. [コスト管理](#11-コスト管理)
+12. [トラブルシューティング](#12-トラブルシューティング)
+    - 12.1 ACR 関連
+    - 12.2 Container Apps 関連
+    - 12.3 Key Vault 関連
+    - 12.4 ネットワーク関連
+    - 12.5 その他の一般的な問題
 
 ---
 
 ## 前提条件
 
+### 必要な環境
+
 - Azure サブスクリプション
 - Azure CLI (バージョン 2.28.0 以上) がインストールされていること
 - Azure にログイン済みであること (`az login`)
 - Docker がローカル環境にインストールされていること
+
+### 作成するリソース一覧
+
+このガイドで作成する Azure リソースの全体像:
+
+| リソースタイプ             | 名前 (例)                    | 用途                                      | SKU/構成              |
+| -------------------------- | ---------------------------- | ----------------------------------------- | --------------------- |
+| Resource Group             | `rg-slackbot-aca`            | すべてのリソースを格納                    | -                     |
+| Container Registry         | `<YOUR_ACR_NAME>.azurecr.io` | Docker イメージを保存                     | Standard (推奨)       |
+| Virtual Network            | `slackbot-aca-vnet`          | Container Apps を配置する仮想ネットワーク | 10.0.0.0/16           |
+| - Subnet (ACA)             | `aca-subnet`                 | Container Apps Environment 用             | 10.0.0.0/23           |
+| - Subnet (Database)        | `database-subnet`            | 将来の拡張用 (プライベートエンドポイント) | 10.0.2.0/24           |
+| Log Analytics Workspace    | `ws-slackapp-aca`            | ログとメトリクスの保存                    | PerGB2018             |
+| Container Apps Environment | `slackbot-aca-env`           | Container Apps の実行環境                 | VNET 統合             |
+| Container Apps             | `slackbot-app`               | Slack Bot アプリケーション                | 0.5 vCPU / 1.0 GiB    |
+| Key Vault                  | `kv-slackbot-aca`            | シークレット管理 (Slack トークン等)       | Standard              |
+
+> **💰 概算月額コスト**:
+> - Container Apps: 約 ¥3,000〜¥5,000/月
+> - ACR Standard: 約 ¥6,000/月
+> - Key Vault: 約 ¥500/月
+> - Log Analytics: 約 ¥500〜¥1,000/月 (使用量により変動)
+> - **合計: 約 ¥10,000〜¥13,000/月**
 
 ### セットアップ手順
 
@@ -260,7 +287,7 @@ Login Succeeded
 unauthorized: authentication required
 ```
 
-→ [2.2 節](#22-azure-rbac-による権限設定) で `AcrPush` ロールが付与されているか確認してください。詳細なトラブルシューティングは [12.1 ACR関連のトラブルシューティング](#121-acr関連のトラブルシューティング) を参照してください。
+→ [2.2 節](#22-azure-rbac-による権限設定) で `AcrPush` ロールが付与されているか確認してください。詳細なトラブルシューティングは [12.1 ACR 関連のトラブルシューティング](#121-acr関連のトラブルシューティング) を参照してください。
 
 ### 3.2 Docker イメージのビルド
 
@@ -307,7 +334,7 @@ Result
 1
 ```
 
-> **📝 Note**: エラーが発生した場合は [12.1 ACR関連のトラブルシューティング](#121-acr関連のトラブルシューティング) を参照してください。
+> **📝 Note**: エラーが発生した場合は [12.1 ACR 関連のトラブルシューティング](#121-acr関連のトラブルシューティング) を参照してください。
 
 ---
 
@@ -762,7 +789,7 @@ az containerapp revision restart \
 
 > **🔄 代替案**: Key Vault 参照の代わりに、アプリコードから Key Vault SDK を使ってシークレットを直接取得する方式もあります。詳細は [9.2 SDK を使った Key Vault 直接アクセス](#92-sdk-を使った-key-vault-直接アクセス) を参照してください。
 
-> **⚠️ エラーが発生した場合**: [12.3 Key Vault関連のトラブルシューティング](#123-key-vault関連のトラブルシューティング) を参照してください。
+> **⚠️ エラーが発生した場合**: [12.3 Key Vault 関連のトラブルシューティング](#123-key-vault関連のトラブルシューティング) を参照してください。
 
 #### Key Vault 参照のメリット
 
@@ -899,9 +926,10 @@ az containerapp logs show \
 ```
 
 > **⚠️ エラーが発生した場合**: 詳細なトラブルシューティングは以下を参照してください:
-> - ACRイメージ関連: [12.1 ACR関連のトラブルシューティング](#121-acr関連のトラブルシューティング)
-> - Container Apps関連: [12.2 Container Apps関連のトラブルシューティング](#122-container-apps関連のトラブルシューティング)
-> - Key Vault関連: [12.3 Key Vault関連のトラブルシューティング](#123-key-vault関連のトラブルシューティング)
+>
+> - ACR イメージ関連: [12.1 ACR 関連のトラブルシューティング](#121-acr関連のトラブルシューティング)
+> - Container Apps 関連: [12.2 Container Apps 関連のトラブルシューティング](#122-container-apps関連のトラブルシューティング)
+> - Key Vault 関連: [12.3 Key Vault 関連のトラブルシューティング](#123-key-vault関連のトラブルシューティング)
 
 ---
 
@@ -1145,7 +1173,7 @@ nslookup kv-slackbot-aca.vault.azure.net
 # 期待される結果: 10.0.x.x (プライベートIP) が返される
 ```
 
-> **⚠️ エラーが発生した場合**: [12.3 Key Vault関連のトラブルシューティング](#123-key-vault関連のトラブルシューティング) の「Key Vault プライベートエンドポイント接続エラー」を参照してください。
+> **⚠️ エラーが発生した場合**: [12.3 Key Vault 関連のトラブルシューティング](#123-key-vault関連のトラブルシューティング) の「Key Vault プライベートエンドポイント接続エラー」を参照してください。
 
 ---
 
@@ -1453,22 +1481,6 @@ az acr update \
 
 ---
 
-## 10. リソース一覧
-
-作成した Azure リソース:
-
-| リソースタイプ             | 名前 (例)                    | 説明                                      |
-| -------------------------- | ---------------------------- | ----------------------------------------- |
-| Resource Group             | `rg-slackbot-aca`            | すべてのリソースを格納                    |
-| Container Registry         | `<YOUR_ACR_NAME>.azurecr.io` | Docker イメージを保存                     |
-| Virtual Network            | `slackbot-aca-vnet`          | Container Apps を配置する仮想ネットワーク |
-| Log Analytics Workspace    | `ws-slackapp-aca`            | ログとメトリクスの保存                    |
-| Container Apps Environment | `slackbot-aca-env`           | Container Apps の実行環境                 |
-| Container Apps             | `slackbot-app`               | Slack Bot アプリケーション                |
-| Key Vault                  | `kv-slackbot-aca`            | シークレット管理                          |
-
----
-
 ## 11. コスト管理
 
 ### 推奨設定
@@ -1518,11 +1530,12 @@ VNET 統合による追加コスト:
 
 このセクションでは、Azure リソース単位でよくある問題と解決方法をまとめています。
 
-### 12.1 ACR関連のトラブルシューティング
+### 12.1 ACR 関連のトラブルシューティング
 
 #### Docker ログインエラー
 
 **症状**:
+
 ```
 Error response from daemon: login attempt failed with status: 401 Unauthorized
 ```
@@ -1532,16 +1545,19 @@ Error response from daemon: login attempt failed with status: 401 Unauthorized
 **解決策**:
 
 1. Azure CLI でログインしているか確認:
+
    ```bash
    az account show
    ```
 
 2. ACR に対する権限を確認:
+
    ```bash
    USER_OBJECT_ID=$(az ad signed-in-user show --query id -o tsv)
    ACR_ID=$(az acr show --name <YOUR_ACR_NAME> --query id -o tsv)
    az role assignment list --assignee $USER_OBJECT_ID --scope $ACR_ID
    ```
+
    → `AcrPush` または `AcrPull` ロールが付与されているか確認
 
 3. ロールが未付与の場合は [2.2 節](#22-azure-rbac-による権限設定) を参照して付与
@@ -1554,6 +1570,7 @@ Error response from daemon: login attempt failed with status: 401 Unauthorized
 #### ビルドエラー
 
 **症状**:
+
 ```
 ERROR [internal] load metadata for docker.io/library/node:18-alpine
 ```
@@ -1573,6 +1590,7 @@ ERROR [internal] load metadata for docker.io/library/node:18-alpine
 #### プッシュ権限エラー
 
 **症状**:
+
 ```
 unauthorized: authentication required
 ```
@@ -1582,11 +1600,13 @@ unauthorized: authentication required
 **解決策**:
 
 1. ACR に再ログイン:
+
    ```bash
    az acr login --name <YOUR_ACR_NAME>
    ```
 
 2. `AcrPush` ロールが付与されているか確認:
+
    ```bash
    USER_OBJECT_ID=$(az ad signed-in-user show --query id -o tsv)
    ACR_ID=$(az acr show --name <YOUR_ACR_NAME> --query id -o tsv)
@@ -1598,6 +1618,7 @@ unauthorized: authentication required
 #### イメージが見つからない
 
 **症状**:
+
 ```
 manifest unknown: manifest unknown
 ```
@@ -1607,11 +1628,13 @@ manifest unknown: manifest unknown
 **解決策**:
 
 1. リポジトリ一覧を確認:
+
    ```bash
    az acr repository list --name <YOUR_ACR_NAME> --output table
    ```
 
 2. 特定リポジトリのタグ一覧を確認:
+
    ```bash
    az acr repository show-tags --name <YOUR_ACR_NAME> --repository slackbot-sample --output table
    ```
@@ -1620,7 +1643,7 @@ manifest unknown: manifest unknown
 
 ---
 
-### 12.2 Container Apps関連のトラブルシューティング
+### 12.2 Container Apps 関連のトラブルシューティング
 
 #### Container Apps が起動しない
 
@@ -1629,6 +1652,7 @@ manifest unknown: manifest unknown
 **確認項目と解決策**:
 
 1. **プロビジョニング状態の確認**:
+
    ```bash
    az containerapp show \
      --name slackbot-app \
@@ -1637,6 +1661,7 @@ manifest unknown: manifest unknown
    ```
 
 2. **リビジョンの状態を確認**:
+
    ```bash
    az containerapp revision list \
      --name slackbot-app \
@@ -1662,6 +1687,7 @@ manifest unknown: manifest unknown
 **解決策**:
 
 1. **ACR にイメージが存在するか確認**:
+
    ```bash
    az acr repository show \
      --name <YOUR_ACR_NAME> \
@@ -1669,23 +1695,26 @@ manifest unknown: manifest unknown
    ```
 
 2. **Managed Identity が有効か確認**:
+
    ```bash
    az containerapp show \
      --name slackbot-app \
      --resource-group rg-slackbot-aca \
      --query identity
    ```
+
    → `principalId` が表示されること
 
 3. **Managed Identity に AcrPull ロールが付与されているか確認**:
+
    ```bash
    APP_PRINCIPAL_ID=$(az containerapp show \
      --name slackbot-app \
      --resource-group rg-slackbot-aca \
      --query identity.principalId -o tsv)
-   
+
    ACR_ID=$(az acr show --name <YOUR_ACR_NAME> --query id -o tsv)
-   
+
    az role assignment list \
      --assignee $APP_PRINCIPAL_ID \
      --scope $ACR_ID \
@@ -1693,6 +1722,7 @@ manifest unknown: manifest unknown
    ```
 
 4. **権限が無い場合は付与** ([7.4 節](#74-acr-へのアクセス権付与-managed-identity) 参照):
+
    ```bash
    az role assignment create \
      --assignee $APP_PRINCIPAL_ID \
@@ -1700,14 +1730,15 @@ manifest unknown: manifest unknown
      --scope $ACR_ID
    ```
 
-5. **ロール伝播を待って (5〜10分) Container App を再起動**:
+5. **ロール伝播を待って (5〜10 分) Container App を再起動**:
+
    ```bash
    REVISION_NAME=$(az containerapp revision list \
      --name slackbot-app \
      --resource-group rg-slackbot-aca \
      --query "[0].name" \
      --output tsv)
-   
+
    az containerapp revision restart \
      --name slackbot-app \
      --resource-group rg-slackbot-aca \
@@ -1721,6 +1752,7 @@ manifest unknown: manifest unknown
 **解決策**:
 
 1. **Log Analytics Workspace の接続を確認**:
+
    ```bash
    az containerapp env show \
      --name slackbot-aca-env \
@@ -1729,17 +1761,19 @@ manifest unknown: manifest unknown
    ```
 
 2. **Container App がログを出力しているか確認**:
+
    - アプリケーションコードで `console.log()` などが実行されているか確認
    - stdout/stderr に出力されているか確認
 
 3. **Log Analytics で直接クエリ**:
+
    ```bash
    # Workspace ID を取得
    WORKSPACE_ID=$(az monitor log-analytics workspace show \
      --resource-group rg-slackbot-aca \
      --workspace-name ws-slackapp-aca \
      --query customerId -o tsv)
-   
+
    # Azure Portal で Log Analytics にアクセスし、以下のクエリを実行:
    # ContainerAppConsoleLogs_CL
    # | where ContainerAppName_s == "slackbot-app"
@@ -1753,6 +1787,7 @@ manifest unknown: manifest unknown
 **解決策**:
 
 1. **環境変数が正しく設定されているか確認** ([8.3 節](#83-環境変数の設定確認) 参照):
+
    ```bash
    az containerapp show \
      --name slackbot-app \
@@ -1762,19 +1797,21 @@ manifest unknown: manifest unknown
    ```
 
 2. **Key Vault のシークレット値が正しいか確認**:
+
    ```bash
    az keyvault secret show \
      --vault-name kv-slackbot-aca \
      --name slack-bot-token \
      --query value -o tsv
    ```
+
    → Slack の設定画面のトークンと一致するか確認
 
 3. **シークレットを更新して再起動** ([9.1 節](#91-シークレットの更新・ローテーション) 参照)
 
 ---
 
-### 12.3 Key Vault関連のトラブルシューティング
+### 12.3 Key Vault 関連のトラブルシューティング
 
 #### Key Vault アクセスエラー (403 Forbidden)
 
@@ -1785,6 +1822,7 @@ manifest unknown: manifest unknown
 **解決策**:
 
 1. **Managed Identity が有効か確認**:
+
    ```bash
    az containerapp show \
      --name slackbot-app \
@@ -1793,14 +1831,15 @@ manifest unknown: manifest unknown
    ```
 
 2. **Managed Identity に Key Vault Secrets User ロールが付与されているか確認**:
+
    ```bash
    APP_PRINCIPAL_ID=$(az containerapp show \
      --name slackbot-app \
      --resource-group rg-slackbot-aca \
      --query identity.principalId -o tsv)
-   
+
    KV_ID=$(az keyvault show --name kv-slackbot-aca --query id -o tsv)
-   
+
    az role assignment list \
      --assignee $APP_PRINCIPAL_ID \
      --scope $KV_ID \
@@ -1808,6 +1847,7 @@ manifest unknown: manifest unknown
    ```
 
 3. **権限が無い場合は付与** ([7.5 節](#75-key-vault-アクセス権の付与-managed-identity) 参照):
+
    ```bash
    az role assignment create \
      --assignee $APP_PRINCIPAL_ID \
@@ -1815,18 +1855,20 @@ manifest unknown: manifest unknown
      --scope $KV_ID
    ```
 
-4. **ロール伝播を待つ (5〜10分)**:
+4. **ロール伝播を待つ (5〜10 分)**:
+
    - Azure RBAC のロール割り当ては伝播に時間がかかります
-   - 10分待ってから Container App を再起動
+   - 10 分待ってから Container App を再起動
 
 5. **Container App を再起動**:
+
    ```bash
    REVISION_NAME=$(az containerapp revision list \
      --name slackbot-app \
      --resource-group rg-slackbot-aca \
      --query "[0].name" \
      --output tsv)
-   
+
    az containerapp revision restart \
      --name slackbot-app \
      --resource-group rg-slackbot-aca \
@@ -1842,10 +1884,11 @@ manifest unknown: manifest unknown
 **解決策**:
 
 1. **現在のユーザーの権限を確認**:
+
    ```bash
    USER_OBJECT_ID=$(az ad signed-in-user show --query id -o tsv)
    KV_ID=$(az keyvault show --name kv-slackbot-aca --query id -o tsv)
-   
+
    az role assignment list \
      --assignee $USER_OBJECT_ID \
      --scope $KV_ID \
@@ -1853,6 +1896,7 @@ manifest unknown: manifest unknown
    ```
 
 2. **Key Vault Secrets Officer ロールを付与** ([7.2 節](#72-key-vault-にシークレットを登録) 参照):
+
    ```bash
    az role assignment create \
      --assignee $USER_OBJECT_ID \
@@ -1860,7 +1904,7 @@ manifest unknown: manifest unknown
      --scope $KV_ID
    ```
 
-3. **ロール伝播を待って (1〜5分) 再試行**
+3. **ロール伝播を待って (1〜5 分) 再試行**
 
 #### シークレット参照エラー
 
@@ -1871,6 +1915,7 @@ manifest unknown: manifest unknown
 **解決策**:
 
 1. **Key Vault のシークレット一覧を確認**:
+
    ```bash
    az keyvault secret list \
      --vault-name kv-slackbot-aca \
@@ -1879,6 +1924,7 @@ manifest unknown: manifest unknown
    ```
 
 2. **Container App のシークレット設定を確認** ([8.3 節](#83-シークレットの設定確認) 参照):
+
    ```bash
    az containerapp secret list \
      --name slackbot-app \
@@ -1886,6 +1932,7 @@ manifest unknown: manifest unknown
      --query "[].{Name:name, KeyVaultUrl:keyVaultUrl}" \
      --output table
    ```
+
    → `KeyVaultUrl` が正しい形式か確認: `https://kv-slackbot-aca.vault.azure.net/secrets/<secret-name>`
 
 3. **シークレットを再設定** ([7.6 節](#76-シークレット同期) 参照)
@@ -1897,6 +1944,7 @@ manifest unknown: manifest unknown
 **解決策**:
 
 1. **Private Endpoint の状態を確認**:
+
    ```bash
    az network private-endpoint show \
      --name kv-private-endpoint \
@@ -1905,6 +1953,7 @@ manifest unknown: manifest unknown
    ```
 
 2. **DNS 設定を確認**:
+
    ```bash
    az network private-dns record-set a list \
      --resource-group rg-slackbot-aca \
@@ -1912,9 +1961,11 @@ manifest unknown: manifest unknown
    ```
 
 3. **VNET 内から名前解決ができるか確認** (Azure Cloud Shell または VNET 内の VM から):
+
    ```bash
    nslookup kv-slackbot-aca.vault.azure.net
    ```
+
    → プライベート IP (10.0.x.x) が返されること
 
 4. **Container App が VNET 統合されているか確認**:
@@ -1938,6 +1989,7 @@ manifest unknown: manifest unknown
 **解決策**:
 
 1. **サブネットのアドレス範囲を確認**:
+
    ```bash
    az network vnet subnet show \
      --resource-group rg-slackbot-aca \
@@ -1945,9 +1997,11 @@ manifest unknown: manifest unknown
      --name aca-subnet \
      --query addressPrefix
    ```
-   → 最小 `/23` (512個のIPアドレス) が必要
+
+   → 最小 `/23` (512 個の IP アドレス) が必要
 
 2. **サブネット委任を確認**:
+
    ```bash
    az network vnet subnet show \
      --resource-group rg-slackbot-aca \
@@ -1955,6 +2009,7 @@ manifest unknown: manifest unknown
      --name aca-subnet \
      --query delegations
    ```
+
    → `Microsoft.App/environments` が設定されていること
 
 3. **設定が正しくない場合は [4. Virtual Network とサブネットの作成](#4-virtual-network-とサブネットの作成) を再実行**
@@ -1970,17 +2025,21 @@ manifest unknown: manifest unknown
 **解決策**:
 
 1. **Azure CLI のバージョンを確認**:
+
    ```bash
    az version
    ```
+
    → 2.28.0 以上であること
 
 2. **最新版にアップグレード**:
+
    ```bash
    az upgrade
    ```
 
 3. **拡張機能を更新**:
+
    ```bash
    az extension update --name containerapp
    ```
@@ -1998,6 +2057,7 @@ manifest unknown: manifest unknown
 **解決策**:
 
 1. **現在の使用状況を確認**:
+
    ```bash
    az vm list-usage --location japaneast --output table
    ```
