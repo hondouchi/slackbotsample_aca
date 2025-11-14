@@ -7,29 +7,29 @@
 ## 目次
 
 1. [前提条件](#前提条件)
-2. [リソースグループの作成](#1-リソースグループの作成)
-3. [Azure Container Registry (ACR) の作成](#2-azure-container-registry-acr-の作成)
-4. [初期 Docker イメージのビルドとプッシュ](#3-初期-docker-イメージのビルドとプッシュ)
-5. [Virtual Network (VNET) とサブネットの作成](#4-virtual-network-とサブネットの作成)
-6. [Log Analytics Workspace の作成](#5-log-analytics-workspace-の作成)
-7. [Container Apps Environment の作成](#6-container-apps-environment-の作成-vnet-統合)
-8. [Container Apps の作成 (Key Vault 統合)](#7-container-apps-の作成-key-vault-統合)
-   - 7.1 Key Vault の作成
-   - 7.2 Key Vault にシークレットを登録
-   - 7.3 Container App の作成
-   - 7.4 ACR へのアクセス権付与
-   - 7.5 Key Vault アクセス権の付与
-   - 7.6 シークレット同期
-9. [デプロイの確認](#8-デプロイの確認)
-10. [追加の設定 (オプション)](#9-追加の設定オプション)
-    - 9.1 シークレットの更新・ローテーション
-    - 9.2 SDK を使った Key Vault 直接アクセス
-    - 9.3 Key Vault プライベートエンドポイント設定 (オプション)
-    - 9.4 ネットワークセキュリティグループ (NSG)
-    - 9.5 セキュリティチェックリスト
-    - 9.6 ヘルスプローブ設定
-    - 9.7 イメージのクリーンアップ運用 (推奨)
-    - 9.8 Premium SKU の追加機能 (オプション)
+2. [リソースグループの作成](#2-リソースグループの作成)
+3. [Azure Container Registry (ACR) の作成](#3-azure-container-registry-acr-の作成)
+4. [初期 Docker イメージのビルドとプッシュ](#4-初期-docker-イメージのビルドとプッシュ)
+5. [Virtual Network (VNET) とサブネットの作成](#5-virtual-network-とサブネットの作成)
+6. [Log Analytics Workspace の作成](#6-log-analytics-workspace-の作成)
+7. [Container Apps Environment の作成](#7-container-apps-environment-の作成-vnet-統合)
+8. [Container Apps の作成 (Key Vault 統合)](#8-container-apps-の作成-key-vault-統合)
+   - 8.1 Key Vault の作成
+   - 8.2 Key Vault にシークレットを登録
+   - 8.3 Container App の作成
+   - 8.4 ACR へのアクセス権付与
+   - 8.5 Key Vault アクセス権の付与
+   - 8.6 シークレット同期
+9. [デプロイの確認](#9-デプロイの確認)
+10. [追加の設定 (オプション)](#10-追加の設定オプション)
+    - 10.1 シークレットの更新・ローテーション
+    - 10.2 SDK を使った Key Vault 直接アクセス
+    - 10.3 Key Vault プライベートエンドポイント設定 (オプション)
+    - 10.4 ネットワークセキュリティグループ (NSG)
+    - 10.5 セキュリティチェックリスト
+    - 10.6 ヘルスプローブ設定
+    - 10.7 イメージのクリーンアップ運用 (推奨)
+    - 10.8 Premium SKU の追加機能 (オプション)
 11. [コスト管理](#11-コスト管理)
 12. [トラブルシューティング](#12-トラブルシューティング)
     - 12.1 ACR 関連
@@ -40,7 +40,7 @@
 
 ---
 
-## 前提条件
+## 1. 前提条件
 
 ### 必要な環境
 
@@ -115,7 +115,7 @@ az provider show -n Microsoft.OperationalInsights --query "registrationState"
 
 ---
 
-## 1. リソースグループの作成
+## 2. リソースグループの作成
 
 すべての Azure リソースを管理するリソースグループを作成します。
 
@@ -132,7 +132,7 @@ az group create \
 
 ---
 
-## 2. Azure Container Registry (ACR) の作成
+## 3. Azure Container Registry (ACR) の作成
 
 Docker イメージを保存するためのコンテナレジストリを作成します。
 
@@ -149,7 +149,7 @@ Docker イメージを保存するためのコンテナレジストリを作成�
 
 > **📝 Premium SKU のみの機能 (オプション)**: Private Endpoint による閉域化、IP 制限、自動保持ポリシー、Geo レプリケーションなど。必要に応じて後から SKU アップグレード可能です。
 
-### 2.1 ACR の作成
+### 3.1 ACR の作成
 
 ```bash
 az acr create \
@@ -168,7 +168,7 @@ az acr create \
 
 > **🔐 セキュリティ**: 管理者ユーザーを無効化し、Azure RBAC で必要最小限の権限を付与します。
 
-### 2.2 Azure RBAC による権限設定
+### 3.2 Azure RBAC による権限設定
 
 #### 開発者への権限付与 (イメージ push 用)
 
@@ -204,7 +204,7 @@ CI/CD パイプライン用の Service Principal 設定は [setup-github.md](set
 
 Container Apps からイメージを pull するための Managed Identity 権限設定は、[7.4 節](#74-container-app-にマネージド-id-を付与) で実施します。
 
-### 2.3 診断ログの有効化
+### 3.3 診断ログの有効化
 
 ACR への認証やイメージ操作をログに記録し、セキュリティ監査に活用します。
 
@@ -246,7 +246,7 @@ az monitor diagnostic-settings create \
 - **ContainerRegistryRepositoryEvents**: イメージの push/pull/delete 操作
 - **AllMetrics**: ストレージ使用量、操作回数
 
-### 2.5 Premium SKU の追加機能 (オプション)
+### 3.5 Premium SKU の追加機能 (オプション)
 
 Premium SKU の機能概要のみ記載します。詳細な手順や設定例は「[9.8 Premium SKU の追加機能 (オプション)](#98-premium-sku-の追加機能-オプション)」を参照してください。
 
@@ -254,7 +254,7 @@ Premium SKU の機能概要のみ記載します。詳細な手順や設定例�
 
 ---
 
-## 3. 初期 Docker イメージのビルドとプッシュ
+## 4. 初期 Docker イメージのビルドとプッシュ
 
 Container App を作成する前に、ACR に初期イメージを配置する必要があります。ここでは開発環境から直接ビルド・プッシュする手順を説明します。
 
@@ -267,7 +267,7 @@ Container App を作成する前に、ACR に初期イメージを配置する�
 - Azure CLI でログイン済みであること (`az login`)
 - ACR への `AcrPush` 権限が付与されていること ([2.2 節](#22-azure-rbac-による権限設定) で設定済み)
 
-### 3.1 ACR にログイン (Azure RBAC 使用)
+### 4.1 ACR にログイン (Azure RBAC 使用)
 
 ```bash
 az acr login --name <YOUR_ACR_NAME>
@@ -289,7 +289,7 @@ unauthorized: authentication required
 
 → [2.2 節](#22-azure-rbac-による権限設定) で `AcrPush` ロールが付与されているか確認してください。詳細なトラブルシューティングは [12.1 ACR 関連のトラブルシューティング](#121-acr関連のトラブルシューティング) を参照してください。
 
-### 3.2 Docker イメージのビルド
+### 4.2 Docker イメージのビルド
 
 プロジェクトのルートディレクトリで実行:
 
@@ -297,19 +297,19 @@ unauthorized: authentication required
 docker build -t slackbot-sample:1 .
 ```
 
-### 3.3 イメージにタグを付与
+### 4.3 イメージにタグを付与
 
 ```bash
 docker tag slackbot-sample:1 <YOUR_ACR_NAME>.azurecr.io/slackbot-sample:1
 ```
 
-### 3.4 ACR にプッシュ
+### 4.4 ACR にプッシュ
 
 ```bash
 docker push <YOUR_ACR_NAME>.azurecr.io/slackbot-sample:1
 ```
 
-### 3.5 イメージが登録されたか確認
+### 4.5 イメージが登録されたか確認
 
 ```bash
 az acr repository show \
@@ -338,7 +338,7 @@ Result
 
 ---
 
-## 4. Virtual Network とサブネットの作成
+## 5. Virtual Network とサブネットの作成
 
 セキュリティを強化するため、Container Apps を仮想ネットワーク内に配置します。
 
@@ -421,7 +421,7 @@ az network vnet subnet create \
 
 ---
 
-## 5. Log Analytics Workspace の作成
+## 6. Log Analytics Workspace の作成
 
 Container Apps のログとメトリクスを収集するための Log Analytics Workspace を作成します。
 
@@ -455,7 +455,7 @@ WORKSPACE_KEY=$(az monitor log-analytics workspace get-shared-keys \
 
 ---
 
-## 6. Container Apps Environment の作成 (VNET 統合)
+## 7. Container Apps Environment の作成 (VNET 統合)
 
 Container Apps の実行環境を VNET 内に作成します。
 
@@ -530,7 +530,7 @@ az containerapp env create \
 
 ---
 
-## 7. Container Apps の作成 (Key Vault 統合)
+## 8. Container Apps の作成 (Key Vault 統合)
 
 このセクションでは、**Azure Key Vault を使った安全なシークレット管理**を前提に、Container Apps を作成します。手順は以下の流れです:
 
@@ -557,7 +557,7 @@ az keyvault create \
 
 > **📝 補足**: 名前はグローバル一意です。既に使用されている場合はサフィックスを付けてください (例: `kv-slackbot-aca-dev`). `--enable-purge-protection` は本番で推奨。検証環境では省略可能。
 
-### 7.2 Key Vault にシークレットを登録
+### 8.2 Key Vault にシークレットを登録
 
 #### 事前準備 (必須): シークレット書き込み権限の確認と付与
 
@@ -618,7 +618,7 @@ az keyvault secret set --vault-name kv-slackbot-aca --name slack-app-token --val
 az keyvault secret set --vault-name kv-slackbot-aca --name bot-user-id --value <BOT_USER_ID>
 ```
 
-### 7.3 Container App の作成 (初期状態)
+### 8.3 Container App の作成 (初期状態)
 
 まず、**シークレット統合前の基本構成**で Container App を作成します。この時点ではシークレットを設定せず、後の手順で Key Vault から同期します。
 
@@ -662,7 +662,7 @@ az containerapp create \
 > - この時点ではシークレット (`--secrets`) や環境変数 (`--env-vars`) は設定していません。後の手順 (7.6) で Key Vault から同期します。
 > - `--registry-identity system` により、Container App の Managed Identity が自動的に有効化され、ACR へのアクセスに使用されます。
 
-### 7.4 ACR へのアクセス権付与 (Managed Identity)
+### 8.4 ACR へのアクセス権付与 (Managed Identity)
 
 Container App の Managed Identity に ACR からイメージを pull する権限を付与します。
 
@@ -686,7 +686,7 @@ az role assignment create \
 
 > **📝 Note**: `AcrPull` ロールは、イメージの pull (読み取り) のみの権限です。Container App は push 不要なため、最小権限の原則に従って `AcrPull` を付与します。
 
-### 7.5 Key Vault へのアクセス権付与 (Managed Identity に読み取り権限)
+### 8.5 Key Vault へのアクセス権付与 (Managed Identity に読み取り権限)
 
 Container App の Managed Identity に Key Vault からシークレットを読み取る権限を付与します。
 
@@ -711,7 +711,7 @@ az role assignment create \
 
 > **📝 Note**: CI/CD 用サービスプリンシパルの権限設定は [GitHub の設定](setup-github.md) で後述します。
 
-### 7.6 Key Vault 参照の設定
+### 8.6 Key Vault 参照の設定
 
 Key Vault に保存したシークレットを Container App から参照できるように設定します。ここでは **Key Vault 参照パターン** を使用します (Container App が Key Vault から直接シークレットを取得)。
 
@@ -802,11 +802,11 @@ az containerapp revision restart \
 
 ---
 
-## 8. デプロイの確認
+## 9. デプロイの確認
 
 Container App が正しく構成され、動作していることを確認します。
 
-### 8.1 リソース作成状態の確認
+### 9.1 リソース作成状態の確認
 
 #### Container App のプロビジョニング状態
 
@@ -837,7 +837,7 @@ az containerapp show \
 }
 ```
 
-### 8.2 権限設定の確認
+### 9.2 権限設定の確認
 
 #### ACR への権限
 
@@ -863,7 +863,7 @@ az role assignment list \
 
 **期待される出力**: Key Vault リソースへの `Key Vault Secrets User` ロール割り当てが表示される
 
-### 8.3 環境変数とシークレットの確認
+### 9.3 環境変数とシークレットの確認
 
 #### Key Vault 参照の確認
 
@@ -907,7 +907,7 @@ SLACK_APP_TOKEN    slack-app-token
 BOT_USER_ID        bot-user-id
 ```
 
-### 8.4 アプリケーションログの確認
+### 9.4 アプリケーションログの確認
 
 Container App が正常に起動し、Slack に接続できているかログで確認します。
 
@@ -933,11 +933,11 @@ az containerapp logs show \
 
 ---
 
-## 9. 追加の設定 (オプション)
+## 10. 追加の設定 (オプション)
 
 基本的なデプロイ完了後、必要に応じて実施する追加設定です。
 
-### 9.1 シークレットの更新・ローテーション
+### 10.1 シークレットの更新・ローテーション
 
 Slack トークンやその他のシークレットを更新する場合の手順です。Key Vault 参照を使用している場合、Key Vault で更新して Container App を再起動するだけで反映されます。
 
@@ -998,7 +998,7 @@ az containerapp revision restart \
 
 > **📝 補足**: CI/CD が設定されている場合は、次回デプロイ時に自動的に再起動されます。即時反映が必要な場合のみ手動で上記を実行してください。
 
-### 9.2 SDK を使った Key Vault 直接アクセス
+### 10.2 SDK を使った Key Vault 直接アクセス
 
 Key Vault 参照の代わりに、アプリケーションコード内で Azure SDK を使って Key Vault から直接シークレットを取得する方式です。より細かい制御が可能ですが、実装が複雑になります。
 
@@ -1059,7 +1059,7 @@ loadSecrets()
 
 > **🔁 ローテーション運用**: Key Vault でシークレットを更新 → Container App を再起動すれば、自動的に最新値を取得します。
 
-### 9.3 Key Vault プライベートエンドポイント設定 (オプション)
+### 10.3 Key Vault プライベートエンドポイント設定 (オプション)
 
 より高度なセキュリティ要件がある場合、Key Vault をプライベートエンドポイント経由で接続し、パブリックインターネットからのアクセスを完全に遮断できます。
 
@@ -1206,7 +1206,7 @@ az network private-dns zone create \
 > - Storage Account: `blob`, `file`, `table`, `queue`
 > - Cosmos DB: `Sql`, `MongoDB`, etc.
 
-### 9.4 ネットワークセキュリティグループ (NSG)
+### 10.4 ネットワークセキュリティグループ (NSG)
 
 ```bash
 # NSG の作成
@@ -1235,7 +1235,7 @@ az network vnet subnet update \
   --network-security-group aca-nsg
 ```
 
-### 9.5 セキュリティチェックリスト
+### 10.5 セキュリティチェックリスト
 
 実装後、以下の項目を確認してください:
 
@@ -1260,7 +1260,7 @@ az network vnet subnet update \
 - [ ] データベースなどの Azure リソースがプライベートエンドポイント経由で接続されている
 - [ ] NSG で不要なトラフィックがブロックされている
 
-### 9.6 ヘルスプローブ設定
+### 10.6 ヘルスプローブ設定
 
 Container App の正常性を監視し、異常なコンテナーを自動的に再起動するためのヘルスプローブを設定します。
 
@@ -1388,7 +1388,7 @@ az containerapp revision list \
 
 ---
 
-### 9.7 イメージのクリーンアップ運用 (推奨)
+### 10.7 イメージのクリーンアップ運用 (推奨)
 
 不要なイメージを定期的に削除してストレージコストを最適化します。
 
@@ -1431,7 +1431,7 @@ az acr repository delete \
 > - 本番環境: 直近 3 世代のみ保持、それ以外は削除
 > - タグ命名規則: `<version>-<commit-sha>` (例: `1.2.3-abc1234`)
 
-### 9.8 Premium SKU の追加機能 (オプション)
+### 10.8 Premium SKU の追加機能 (オプション)
 
 セキュリティ要件が高い場合や、複数リージョン展開が必要な場合は Premium SKU を検討してください。
 
