@@ -1103,14 +1103,152 @@ loadSecrets()
 
 > **🔁 ローテーション運用**: Key Vault でシークレットを更新 → Container App を再起動すれば、自動的に最新値を取得します。
 
-### 9.3 プライベートエンドポイント設定
+### 9.3 Key Vault プライベートエンドポイント設定 (オプション)
 
-将来、Azure Database などのリソースに接続する場合のプライベートエンドポイント設定例です。
+より高度なセキュリティ要件がある場合、Key Vault をプライベートエンドポイント経由で接続し、パブリックインターネットからのアクセスを完全に遮断できます。
 
-#### Azure Database for PostgreSQL の例
+> **💰 コスト影響**: Private Endpoint 約 ¥1,000/月 + Private DNS Zone 約 ¥500/月 = **合計 約 ¥1,500/月** の追加コストが発生します。
+
+> **📝 推奨シナリオ**:
+>
+> - 本番環境で顧客の機密情報を扱う場合
+> - コンプライアンス要件でネットワーク分離が必須の場合
+> - ゼロトラストアーキテクチャを実装する場合
+>
+> **標準構成**: 基本的には **Azure RBAC による保護で十分**です。Managed Identity と最小権限の原則により、認証情報の漏洩リスクは最小化されています。
+
+#### 前提条件
+
+- Key Vault が作成済み ([7.1 節](#71-key-vault-の作成) 完了)
+- VNET とサブネットが作成済み ([4 節](#4-virtual-network-とサブネットの作成) 完了)
+- Key Vault 用のプライベートエンドポイント専用サブネットを推奨 (オプション)
+
+#### 手順 1: プライベートエンドポイント用サブネットの作成 (オプション)
+
+既存の `database-subnet` を使用することもできますが、管理を明確にするため専用サブネットを作成することを推奨します。
 
 ```bash
+# Key Vault 用サブネットの作成
+az network vnet subnet create \
+  --resource-group rg-slackbot-aca \
+  --vnet-name slackbot-aca-vnet \
+  --name keyvault-subnet \
+  --address-prefix 10.0.3.0/24
+```
+
+> **📝 Note**: 既存の `database-subnet` (10.0.2.0/24) を使用する場合はこの手順をスキップできます。
+
+#### 手順 2: プライベートエンドポイントの作成
+
+```bash
+# Key Vault のリソース ID を取得
+KV_ID=$(az keyvault show --name kv-slackbot-aca --query id -o tsv)
+
 # プライベートエンドポイントの作成
+az network private-endpoint create \
+  --resource-group rg-slackbot-aca \
+  --name kv-private-endpoint \
+  --vnet-name slackbot-aca-vnet \
+  --subnet keyvault-subnet \
+  --private-connection-resource-id $KV_ID \
+  --group-id vault \
+  --connection-name kv-connection
+```
+
+**パラメータ**:
+
+- `--subnet`: `keyvault-subnet` または `database-subnet` を指定
+- `--group-id`: Key Vault の場合は `vault` を指定
+
+#### 手順 3: Private DNS Zone の作成
+
+Key Vault のプライベートエンドポイントが正しく名前解決されるよう DNS を設定します。
+
+```bash
+# プライベート DNS ゾーンの作成
+az network private-dns zone create \
+  --resource-group rg-slackbot-aca \
+  --name privatelink.vaultcore.azure.net
+
+# VNET リンクの作成
+az network private-dns link vnet create \
+  --resource-group rg-slackbot-aca \
+  --zone-name privatelink.vaultcore.azure.net \
+  --name kv-dns-link \
+  --virtual-network slackbot-aca-vnet \
+  --registration-enabled false
+
+# DNS レコードの自動作成 (Private Endpoint と DNS Zone を関連付け)
+az network private-endpoint dns-zone-group create \
+  --resource-group rg-slackbot-aca \
+  --endpoint-name kv-private-endpoint \
+  --name kv-dns-zone-group \
+  --private-dns-zone privatelink.vaultcore.azure.net \
+  --zone-name vault
+```
+
+#### 手順 4: パブリックネットワークアクセスの無効化
+
+プライベートエンドポイント設定後、パブリックインターネットからのアクセスを完全に遮断します。
+
+```bash
+az keyvault update \
+  --name kv-slackbot-aca \
+  --public-network-access Disabled
+```
+
+> **⚠️ 重要**: この設定後、ローカル開発環境から直接 Key Vault にアクセスできなくなります。以下のいずれかの方法が必要です:
+>
+> - Azure Bastion または VPN 経由で VNET 内から接続
+> - Azure Cloud Shell を使用
+> - 一時的に `--public-network-access Enabled` に戻してシークレット登録
+
+#### 手順 5: 接続確認
+
+```bash
+# Container App から Key Vault への接続確認
+az containerapp logs show \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --tail 20
+
+# DNS 解決の確認 (VNET 内のリソースから実行)
+nslookup kv-slackbot-aca.vault.azure.net
+# 期待される結果: 10.0.x.x (プライベートIP) が返される
+```
+
+#### トラブルシューティング
+
+**問題**: Container App が Key Vault に接続できない
+
+**確認項目**:
+
+1. Private Endpoint の状態確認
+
+   ```bash
+   az network private-endpoint show \
+     --name kv-private-endpoint \
+     --resource-group rg-slackbot-aca \
+     --query "provisioningState"
+   ```
+
+2. DNS 設定の確認
+
+   ```bash
+   az network private-dns record-set a list \
+     --resource-group rg-slackbot-aca \
+     --zone-name privatelink.vaultcore.azure.net
+   ```
+
+3. Managed Identity の権限確認 ([7.5 節](#75-key-vault-アクセス権の付与-managed-identity) 参照)
+
+#### 参考: Azure Database など他のリソースへのプライベートエンドポイント
+
+Key Vault と同様の手順で、他の Azure リソースにもプライベートエンドポイントを設定できます。
+
+**PostgreSQL の例**:
+
+```bash
 az network private-endpoint create \
   --resource-group rg-slackbot-aca \
   --name postgres-private-endpoint \
@@ -1120,27 +1258,18 @@ az network private-endpoint create \
   --group-id postgresqlServer \
   --connection-name postgres-connection
 
-# プライベート DNS ゾーンの作成
 az network private-dns zone create \
   --resource-group rg-slackbot-aca \
   --name privatelink.postgres.database.azure.com
-
-# VNET リンクの作成
-az network private-dns link vnet create \
-  --resource-group rg-slackbot-aca \
-  --zone-name privatelink.postgres.database.azure.com \
-  --name postgres-dns-link \
-  --virtual-network slackbot-aca-vnet \
-  --registration-enabled false
-
-# DNS レコードの自動作成
-az network private-endpoint dns-zone-group create \
-  --resource-group rg-slackbot-aca \
-  --endpoint-name postgres-private-endpoint \
-  --name postgres-dns-zone-group \
-  --private-dns-zone privatelink.postgres.database.azure.com \
-  --zone-name postgres
 ```
+
+> **📝 Note**: `--group-id` はリソースタイプにより異なります:
+>
+> - Key Vault: `vault`
+> - PostgreSQL: `postgresqlServer`
+> - MySQL: `mysqlServer`
+> - Storage Account: `blob`, `file`, `table`, `queue`
+> - Cosmos DB: `Sql`, `MongoDB`, etc.
 
 ### 9.4 ネットワークセキュリティグループ (NSG)
 
@@ -1187,11 +1316,12 @@ az network vnet subnet update \
 - [ ] 最小権限の原則に従ってロールが割り当てられている
 - [ ] 不要なイメージを定期的に削除する運用ルールを策定
 
-#### オプション項目 (Premium SKU 必要)
+#### オプション項目 (高度なセキュリティ要件)
 
-- [ ] ACR に Private Endpoint を設定 (閉域化)
-- [ ] ACR に IP ネットワーク制限を設定
-- [ ] ACR の自動保持ポリシーを有効化
+- [ ] ACR に Private Endpoint を設定 (閉域化、Premium SKU 必要)
+- [ ] ACR に IP ネットワーク制限を設定 (Premium SKU 必要)
+- [ ] ACR の自動保持ポリシーを有効化 (Premium SKU 必要)
+- [ ] Key Vault に Private Endpoint を設定 (閉域化、追加コスト: 約 ¥1,500/月)
 - [ ] データベースなどの Azure リソースがプライベートエンドポイント経由で接続されている
 - [ ] NSG で不要なトラフィックがブロックされている
 
@@ -1466,12 +1596,14 @@ az consumption usage list \
 
 VNET 統合による追加コスト:
 
-| リソース                   | 追加コスト                          |
-| -------------------------- | ----------------------------------- |
-| Virtual Network            | 無料                                |
-| プライベートエンドポイント | 約 ¥1,000/月 (エンドポイントあたり) |
-| NSG                        | 無料                                |
-| Key Vault                  | 約 ¥500/月 + トランザクション料金   |
+| リソース                               | 追加コスト                          | 備考                             |
+| -------------------------------------- | ----------------------------------- | -------------------------------- |
+| Virtual Network                        | 無料                                | -                                |
+| プライベートエンドポイント (ACR)       | 約 ¥1,000/月 (エンドポイントあたり) | Premium SKU 必要                 |
+| プライベートエンドポイント (Key Vault) | 約 ¥1,000/月 (エンドポイントあたり) | オプション                       |
+| Private DNS Zone                       | 約 ¥500/月                          | プライベートエンドポイント使用時 |
+| NSG                                    | 無料                                | -                                |
+| Key Vault (基本料金)                   | 約 ¥500/月 + トランザクション料金   | -                                |
 
 ---
 
