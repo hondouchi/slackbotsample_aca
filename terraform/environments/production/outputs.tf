@@ -23,14 +23,14 @@ output "key_vault_uri" {
   value       = module.key_vault.vault_uri
 }
 
-output "container_app_fqdn" {
-  description = "The FQDN of the Container App"
-  value       = module.container_apps.app_fqdn
+output "container_app_name" {
+  description = "The name of the Container App"
+  value       = module.container_apps.app_name
 }
 
-output "container_app_url" {
-  description = "The URL of the Container App"
-  value       = "https://${module.container_apps.app_fqdn}"
+output "container_app_id" {
+  description = "The ID of the Container App"
+  value       = module.container_apps.app_id
 }
 
 output "vnet_id" {

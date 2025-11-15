@@ -13,7 +13,7 @@ resource "azurerm_container_registry" "acr" {
 }
 
 resource "azurerm_monitor_diagnostic_setting" "acr_diagnostics" {
-  count                      = var.log_analytics_workspace_id != null ? 1 : 0
+  count                      = var.log_analytics_workspace_id != "" && var.log_analytics_workspace_id != null ? 1 : 0
   name                       = "${var.name}-diagnostics"
   target_resource_id         = azurerm_container_registry.acr.id
   log_analytics_workspace_id = var.log_analytics_workspace_id

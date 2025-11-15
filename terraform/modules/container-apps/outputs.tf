@@ -8,9 +8,9 @@ output "app_id" {
   value       = azurerm_container_app.app.id
 }
 
-output "app_fqdn" {
-  description = "The FQDN of the Container App"
-  value       = azurerm_container_app.app.ingress[0].fqdn
+output "app_name" {
+  description = "The name of the Container App"
+  value       = azurerm_container_app.app.name
 }
 
 output "app_identity_principal_id" {
