@@ -3,9 +3,9 @@ name: Deploy to Azure Container Apps (Production)
 on:
   push:
     branches:
-      - main # 本番デプロイは main ブランチのみ
+      - main
     paths:
-      # アプリケーションコードの変更時のみデプロイ実行
+      # アプリケーションコードの変更時のみデプロイ
       - 'app.js'
       - 'package.json'
       - 'package-lock.json'
@@ -14,7 +14,15 @@ on:
       - 'src/**'
       - 'lib/**'
       - 'config/**'
-      # ドキュメント、インフラコード、ワークフローファイルは除外
+      - '.github/workflows/deploy-production.yml'
+    paths-ignore:
+      # ドキュメントやインフラコードの変更は除外
+      - 'README.md'
+      - 'docs/**'
+      - 'terraform/**'
+      - '*.md'
+      - '.gitignore'
+      - 'LICENSE'
 
 permissions:
   id-token: write # Federated Identity 用
@@ -25,11 +33,11 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      ACR_NAME: slackbotacaacr
+      ACR_NAME: slackbotaca
       IMAGE_NAME: slackbot-sample
       CONTAINER_APP_NAME: slackbot-sample-app
-      RESOURCE_GROUP: rg-slackbot-aca-cli
-      KEY_VAULT_NAME: kv-slackbot-aca-cli
+      RESOURCE_GROUP: rg-slackbot-aca
+      KEY_VAULT_NAME: kv-slackbot-aca
 
     steps:
       - name: Checkout repository
@@ -42,24 +50,10 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Set Azure subscription context
-        run: |
-          echo "=== Setting Azure Subscription ==="
-          az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          az account show --query "{SubscriptionId:id, SubscriptionName:name, TenantId:tenantId}" -o table
-
-      - name: Verify ACR access
-        run: |
-          echo "=== Verifying ACR Access ==="
-          echo "ACR Name: ${{ env.ACR_NAME }}"
-          echo "Resource Group: ${{ env.RESOURCE_GROUP }}"
-          az acr show --name ${{ env.ACR_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} --query "{Name:name, LoginServer:loginServer, ResourceGroup:resourceGroup}" -o table
-
       - name: Get next version tag from ACR
         id: version
         run: |
           # 既存のタグ一覧を取得
-          echo "Checking existing tags in repository: ${{ env.IMAGE_NAME }}"
           TAGS=$(az acr repository show-tags \
             --name ${{ env.ACR_NAME }} \
             --repository ${{ env.IMAGE_NAME }} \
@@ -68,12 +62,10 @@ jobs:
 
           if [ -z "$TAGS" ]; then
             # タグが存在しない場合は v1 から開始
-            echo "No existing tags found. Starting with v1"
             NEXT_VERSION="1"
           else
             # 最新のタグから次のバージョンを計算
             LATEST_TAG=$(echo "$TAGS" | head -n 1)
-            echo "Latest tag: $LATEST_TAG"
             LATEST_VERSION=$(echo $LATEST_TAG | sed 's/v//' | sed 's/[^0-9]*//g')
             NEXT_VERSION=$((LATEST_VERSION + 1))
           fi
@@ -81,9 +73,8 @@ jobs:
           echo "next_version=$NEXT_VERSION" >> $GITHUB_OUTPUT
           echo "Next version: v$NEXT_VERSION"
 
-      - name: Log in to Azure Container Registry
+      - name: Log in to Azure Container Registry (Managed Identity)
         run: |
-          echo "Logging in to ACR: ${{ env.ACR_NAME }}"
           az acr login --name ${{ env.ACR_NAME }}
 
       - name: Build and push Docker image
