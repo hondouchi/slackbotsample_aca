@@ -234,10 +234,11 @@ az keyvault secret list --vault-name $KV_NAME --query "[].name" -o table
 
 ```
 Result
----------------
-slack-bot-token
-slack-app-token
+----------------
+acr-login-server
 bot-user-id
+slack-app-token
+slack-bot-token
 ```
 
 未登録の場合は登録:
