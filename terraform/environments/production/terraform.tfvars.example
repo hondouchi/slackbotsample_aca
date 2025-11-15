@@ -1,0 +1,7 @@
+# ACR名とKey Vault名を指定してください（グローバルで一意である必要があります）
+acr_name       = "slackbotaca123"
+key_vault_name = "kv-slackbot-aca"
+
+# コンテナイメージの設定
+container_image_name = "slackbot"
+container_image_tag  = "latest"

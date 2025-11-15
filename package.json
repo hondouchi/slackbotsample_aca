@@ -1,6 +1,6 @@
 {
   "name": "slackbot-aca",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "main": "app.js",
   "type": "commonjs",
   "dependencies": {
