@@ -72,7 +72,7 @@ APP_NAME="gha-slackbot-aca"
 REPO_OWNER="hondouchi"
 REPO_NAME="slackbotsample_aca"
 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-RESOURCE_GROUP="rg-slackbot-aca-cli"
+RESOURCE_GROUP="rg-slackbot-aca"
 
 # App Registration の作成
 APP_ID=$(az ad app create \
@@ -123,7 +123,7 @@ GitHub Actions に必要な最小権限を付与します。
 
 ```bash
 # ACR のリソース ID を取得
-ACR_NAME="slackbotacaacr"
+ACR_NAME="slackbotaca"
 ACR_ID=$(az acr show --name $ACR_NAME --query id -o tsv)
 
 # サービスプリンシパルに AcrPush ロールを付与
@@ -155,7 +155,7 @@ az role assignment create \
 
 ```bash
 # Key Vault のリソース ID を取得
-KV_NAME="kv-slackbot-aca-cli"
+KV_NAME="kv-slackbot-aca"
 KV_ID=$(az keyvault show --name $KV_NAME --query id -o tsv)
 
 # Key Vault Secrets Officer ロールを付与 (シークレット更新用)
@@ -315,11 +315,11 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      ACR_NAME: slackbotacaacr
+      ACR_NAME: slackbotaca
       IMAGE_NAME: slackbot-sample
       CONTAINER_APP_NAME: slackbot-sample-app
-      RESOURCE_GROUP: rg-slackbot-aca-cli
-      KEY_VAULT_NAME: kv-slackbot-aca-cli
+      RESOURCE_GROUP: rg-slackbot-aca
+      KEY_VAULT_NAME: kv-slackbot-aca
 
     steps:
       - name: Checkout repository
@@ -434,11 +434,11 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      ACR_NAME: slackbotacaacr
+      ACR_NAME: slackbotaca
       IMAGE_NAME: slackbot-sample
       CONTAINER_APP_NAME: slackbot-sample-app-dev
-      RESOURCE_GROUP: rg-slackbot-aca-cli-dev
-      KEY_VAULT_NAME: kv-slackbot-aca-cli-dev
+      RESOURCE_GROUP: rg-slackbot-aca-dev
+      KEY_VAULT_NAME: kv-slackbot-aca-dev
 
     steps:
       # 本番環境と同じステップ (環境変数のみ変更)
@@ -509,7 +509,7 @@ git push origin feature/setup-cicd
 ```bash
 az containerapp show \
   --name slackbot-sample-app \
-  --resource-group rg-slackbot-aca-cli \
+  --resource-group rg-slackbot-aca \
   --query "properties.template.containers[0].image" \
   --output tsv
 ```
@@ -517,7 +517,7 @@ az containerapp show \
 **期待される出力**:
 
 ```
-slackbotacaacr.azurecr.io/slackbot-sample:v1
+slackbotaca.azurecr.io/slackbot-sample:v1
 ```
 
 ---
@@ -582,7 +582,7 @@ git push origin feature/your-feature-name
 
 az containerapp logs show \
  --name slackbot-sample-app \
- --resource-group rg-slackbot-aca-cli \
+ --resource-group rg-slackbot-aca \
  --follow
 
 ```
@@ -736,7 +736,7 @@ Failed to pull image: unauthorized: authentication required
 # Container Apps の Managed Identity を取得
 APP_PRINCIPAL_ID=$(az containerapp show \
   --name slackbot-sample-app \
-  --resource-group rg-slackbot-aca-cli \
+  --resource-group rg-slackbot-aca \
   --query identity.principalId -o tsv)
 
 # AcrPull ロールを付与
@@ -797,12 +797,12 @@ az keyvault secret set --vault-name $KV_NAME --name slack-bot-token --value <NEW
 # Container App を再起動 (Key Vault から新しい値を取得)
 REVISION_NAME=$(az containerapp revision list \
   --name slackbot-sample-app \
-  --resource-group rg-slackbot-aca-cli \
+  --resource-group rg-slackbot-aca \
   --query "[0].name" -o tsv)
 
 az containerapp revision restart \
   --name slackbot-sample-app \
-  --resource-group rg-slackbot-aca-cli \
+  --resource-group rg-slackbot-aca \
   --revision $REVISION_NAME
 ```
 
@@ -872,8 +872,8 @@ on:
 
 ```bash
 # 変数の設定
-RESOURCE_GROUP="rg-slackbot-aca-cli"
-KV_NAME="kv-slackbot-aca-cli"
+RESOURCE_GROUP="rg-slackbot-aca"
+KV_NAME="kv-slackbot-aca"
 CONTAINER_APP_NAME="slackbot-sample-app"
 LOG_WORKSPACE_NAME="ws-slackapp-aca"
 
