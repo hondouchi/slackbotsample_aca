@@ -8,32 +8,32 @@
 
 1. [前提条件](#1-前提条件)
 
-- 1.1 必要な環境
-- 1.2 作成するリソース一覧
-- 1.3 セットアップ手順
+   - 1.1 必要な環境
+   - 1.2 作成するリソース一覧
+   - 1.3 セットアップ手順
 
 2. [リソースグループの作成](#2-リソースグループの作成)
 3. [Azure Container Registry (ACR) の作成](#3-azure-container-registry-acr-の作成)
 
-- 3.1 推奨構成: Standard SKU + Azure RBAC
-- 3.2 ACR の作成
-- 3.3 Azure RBAC による権限設定
-- 3.4 診断ログの有効化
-- 3.5 Premium SKU の追加機能 (オプション)
+   - 3.1 推奨構成: Standard SKU + Azure RBAC
+   - 3.2 ACR の作成
+   - 3.3 Azure RBAC による権限設定
+   - 3.4 診断ログの有効化
+   - 3.5 Premium SKU の追加機能 (オプション)
 
 4. [初期 Docker イメージのビルドとプッシュ](#4-初期-docker-イメージのビルドとプッシュ)
 
-- 4.1 前提条件
-- 4.2 ACR にログイン (Azure RBAC 使用)
-- 4.3 Docker イメージのビルド
-- 4.4 イメージにタグを付与
-- 4.5 ACR にプッシュ
-- 4.6 イメージが登録されたか確認
+   - 4.1 前提条件
+   - 4.2 ACR にログイン (Azure RBAC 使用)
+   - 4.3 Docker イメージのビルド
+   - 4.4 イメージにタグを付与
+   - 4.5 ACR にプッシュ
+   - 4.6 イメージが登録されたか確認
 
 5. [Virtual Network (VNET) とサブネットの作成](#5-virtual-network-とサブネットの作成)
 
-- 5.1 セキュアなアーキテクチャ
-- 5.2 リソースの作成
+   - 5.1 セキュアなアーキテクチャ
+   - 5.2 リソースの作成
 
 6. [Log Analytics Workspace の作成](#6-log-analytics-workspace-の作成)
 7. [Container Apps Environment の作成](#7-container-apps-environment-の作成-vnet-統合)
