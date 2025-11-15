@@ -28,7 +28,6 @@ variable "admin_enabled" {
 variable "log_analytics_workspace_id" {
   description = "The ID of the Log Analytics Workspace to send diagnostics to"
   type        = string
-  default     = null
 }
 
 variable "tags" {
