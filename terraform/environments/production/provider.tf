@@ -8,10 +8,10 @@ terraform {
   }
 
   backend "azurerm" {
-    resource_group_name  = "rg-terraform-state"
-    storage_account_name = "sttfstateslackbot"
-    container_name       = "tfstate"
-    key                  = "production.terraform.tfstate"
+    resource_group_name  = "rg-hondouchi-terraform-state" # Terraform State 管理用のリソースグループ名
+    storage_account_name = "slackbotacatf"                # Terraform State 管理用のストレージアカウント名（グローバルで一意）
+    container_name       = "tfstate"                      # Terraform State 保存用のコンテナ名
+    key                  = "production.terraform.tfstate" # State ファイル名
   }
 }
 
