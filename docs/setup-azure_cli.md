@@ -525,7 +525,7 @@ az containerapp env create \
 - `--logs-workspace-id`: Log Analytics Workspace の Customer ID
 - `--logs-workspace-key`: Log Analytics Workspace の共有キー
 
-> **📝 Note**: Socket Mode では **Slack へのアウトバウンド WebSocket 接続**のみ使用し、インバウンド接続は不要です。そのため `--internal-only true` で環境を閉域化できます。`--ingress internal` と併用することで、パブリックインターネットからのアクセスを完全に遮断します。
+> **📝 Note**: Socket Mode では **Slack へのアウトバウンド WebSocket 接続**のみ使用し、インバウンド接続は不要です。そのため `--internal-only true` で環境を閉域化できます。Container App 側では Ingress を無効化することで、HTTP ヘルスチェックの失敗を防ぎます。
 
 ---
 
@@ -629,8 +629,6 @@ az containerapp create \
   --resource-group rg-slackbot-aca \
   --environment slackbot-aca-env \
   --image <YOUR_ACR_NAME>.azurecr.io/slackbot-sample:1 \
-  --target-port 3000 \
-  --ingress internal \
   --registry-server <YOUR_ACR_NAME>.azurecr.io \
   --registry-identity system \
   --min-replicas 1 \
@@ -639,20 +637,20 @@ az containerapp create \
   --memory 1.0Gi
 ```
 
+> **🔒 Socket Mode の重要な設定**: Slack Socket Mode アプリは WebSocket 経由で **Slack へアウトバウンド接続** するだけで、HTTP リクエストを受信する必要がありません。そのため `--ingress` と `--target-port` は指定せず、Ingress を無効にします。これにより、Container Apps のヘルスチェックで失敗することを防ぎます。
+
 **パラメータ**:
 
 | パラメータ                          | 説明                                            | 例                                             |
 | ----------------------------------- | ----------------------------------------------- | ---------------------------------------------- |
-| `--name`                            | Container Apps の名前                           | `slackbot-app`                                 |
-| `--resource-group`                  | リソースグループ名                              | `rg-slackbot-aca`                              |
-| `--environment`                     | Container Apps Environment の名前               | `slackbot-aca-env`                             |
-| `--image`                           | Docker イメージ                                 | `<YOUR_ACR_NAME>.azurecr.io/slackbot-sample:1` |
-| `--target-port`                     | コンテナポート (Socket Mode では不使用だが必須) | `3000`                                         |
-| `--ingress`                         | イングレス設定 (Socket Mode なので internal)    | `internal`                                     |
-| `--registry-server`                 | ACR サーバー名                                  | `<YOUR_ACR_NAME>.azurecr.io`                   |
-| `--registry-identity`               | **ACR 認証に Managed Identity を使用**          | `system`                                       |
-| `--min-replicas` / `--max-replicas` | レプリカ数 (1 固定を推奨)                       | `1`                                            |
-| `--cpu` / `--memory`                | リソース割り当て                                | `0.5` / `1.0Gi`                                |
+| `--name`                            | Container Apps の名前                  | `slackbot-app`                                 |
+| `--resource-group`                  | リソースグループ名                     | `rg-slackbot-aca`                              |
+| `--environment`                     | Container Apps Environment の名前      | `slackbot-aca-env`                             |
+| `--image`                           | Docker イメージ                        | `<YOUR_ACR_NAME>.azurecr.io/slackbot-sample:1` |
+| `--registry-server`                 | ACR サーバー名                         | `<YOUR_ACR_NAME>.azurecr.io`                   |
+| `--registry-identity`               | **ACR 認証に Managed Identity を使用** | `system`                                       |
+| `--min-replicas` / `--max-replicas` | レプリカ数 (1 固定を推奨)              | `1`                                            |
+| `--cpu` / `--memory`                | リソース割り当て                       | `0.5` / `1.0Gi`                                |
 
 > **📝 前提条件**: このコマンドを実行する前に、[3. 初期 Docker イメージのビルドとプッシュ](#3-初期-docker-イメージのビルドとプッシュ) を完了し、ACR にイメージが存在することを確認してください。
 >

@@ -205,7 +205,7 @@ az acr repository show-manifests --name <YOUR_ACR_NAME> \
    - **Log Analytics ワークスペース**: `ws-slackapp-aca`
 6. **確認および作成** → **作成**
 
-> **📝 Note**: Socket Mode では **Slack へのアウトバウンド WebSocket 接続**のみ使用し、インバウンド接続は不要です。そのため「仮想ネットワーク内部専用: はい」で環境を閉域化できます。Container App の Ingress を「内部のみ」に設定することで、パブリックインターネットからのアクセスを完全に遮断します。
+> **📝 Note**: Socket Mode では **Slack へのアウトバウンド WebSocket 接続**のみ使用し、インバウンド接続は不要です。そのため「仮想ネットワーク内部専用: はい」で環境を閉域化できます。Container App 側では Ingress を無効化することで、HTTP ヘルスチェックの失敗を防ぎます。
 
 ---
 
@@ -270,9 +270,9 @@ az acr repository show-manifests --name <YOUR_ACR_NAME> \
 
 **イングレス タブ**:
 
-- **イングレス**: `有効`
-- **イングレス トラフィック**: `内部のみ`
-- **ターゲット ポート**: `3000`
+- **イングレス**: `無効` ✅ **(Socket Mode では不要)**
+
+> **🔒 重要**: Slack Socket Mode アプリは WebSocket 経由で Slack へアウトバウンド接続するだけで、HTTP リクエストを受信しません。Ingress を有効にするとヘルスチェックが失敗して "Unhealthy" になるため、**必ず無効にしてください**。
 
 **スケール タブ**:
 
