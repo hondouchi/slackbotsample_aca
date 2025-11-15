@@ -6,11 +6,35 @@
 
 ## 目次
 
-1. [前提条件](#前提条件)
+1. [前提条件](#1-前提条件)
+
+- 1.1 必要な環境
+- 1.2 作成するリソース一覧
+- 1.3 セットアップ手順
+
 2. [リソースグループの作成](#2-リソースグループの作成)
 3. [Azure Container Registry (ACR) の作成](#3-azure-container-registry-acr-の作成)
+
+- 3.1 推奨構成: Standard SKU + Azure RBAC
+- 3.2 ACR の作成
+- 3.3 Azure RBAC による権限設定
+- 3.4 診断ログの有効化
+- 3.5 Premium SKU の追加機能 (オプション)
+
 4. [初期 Docker イメージのビルドとプッシュ](#4-初期-docker-イメージのビルドとプッシュ)
+
+- 4.1 前提条件
+- 4.2 ACR にログイン (Azure RBAC 使用)
+- 4.3 Docker イメージのビルド
+- 4.4 イメージにタグを付与
+- 4.5 ACR にプッシュ
+- 4.6 イメージが登録されたか確認
+
 5. [Virtual Network (VNET) とサブネットの作成](#5-virtual-network-とサブネットの作成)
+
+- 5.1 セキュアなアーキテクチャ
+- 5.2 リソースの作成
+
 6. [Log Analytics Workspace の作成](#6-log-analytics-workspace-の作成)
 7. [Container Apps Environment の作成](#7-container-apps-environment-の作成-vnet-統合)
 8. [Container Apps の作成 (Key Vault 統合)](#8-container-apps-の作成-key-vault-統合)
@@ -42,37 +66,38 @@
 
 ## 1. 前提条件
 
-### 必要な環境
+### 1.1 必要な環境
 
 - Azure サブスクリプション
 - Azure CLI (バージョン 2.28.0 以上) がインストールされていること
 - Azure にログイン済みであること (`az login`)
 - Docker がローカル環境にインストールされていること
 
-### 作成するリソース一覧
+### 1.2 作成するリソース一覧
 
 このガイドで作成する Azure リソースの全体像:
 
-| リソースタイプ             | 名前 (例)                    | 用途                                      | SKU/構成              |
-| -------------------------- | ---------------------------- | ----------------------------------------- | --------------------- |
-| Resource Group             | `rg-slackbot-aca`            | すべてのリソースを格納                    | -                     |
-| Container Registry         | `<YOUR_ACR_NAME>.azurecr.io` | Docker イメージを保存                     | Standard (推奨)       |
-| Virtual Network            | `slackbot-aca-vnet`          | Container Apps を配置する仮想ネットワーク | 10.0.0.0/16           |
-| - Subnet (ACA)             | `aca-subnet`                 | Container Apps Environment 用             | 10.0.0.0/23           |
-| - Subnet (Database)        | `database-subnet`            | 将来の拡張用 (プライベートエンドポイント) | 10.0.2.0/24           |
-| Log Analytics Workspace    | `ws-slackapp-aca`            | ログとメトリクスの保存                    | PerGB2018             |
-| Container Apps Environment | `slackbot-aca-env`           | Container Apps の実行環境                 | VNET 統合             |
-| Container Apps             | `slackbot-app`               | Slack Bot アプリケーション                | 0.5 vCPU / 1.0 GiB    |
-| Key Vault                  | `kv-slackbot-aca`            | シークレット管理 (Slack トークン等)       | Standard              |
+| リソースタイプ             | 名前 (例)                    | 用途                                      | SKU/構成           |
+| -------------------------- | ---------------------------- | ----------------------------------------- | ------------------ |
+| Resource Group             | `rg-slackbot-aca`            | すべてのリソースを格納                    | -                  |
+| Container Registry         | `<YOUR_ACR_NAME>.azurecr.io` | Docker イメージを保存                     | Standard (推奨)    |
+| Virtual Network            | `slackbot-aca-vnet`          | Container Apps を配置する仮想ネットワーク | 10.0.0.0/16        |
+| - Subnet (ACA)             | `aca-subnet`                 | Container Apps Environment 用             | 10.0.0.0/23        |
+| - Subnet (Database)        | `database-subnet`            | 将来の拡張用 (プライベートエンドポイント) | 10.0.2.0/24        |
+| Log Analytics Workspace    | `ws-slackapp-aca`            | ログとメトリクスの保存                    | PerGB2018          |
+| Container Apps Environment | `slackbot-aca-env`           | Container Apps の実行環境                 | VNET 統合          |
+| Container Apps             | `slackbot-app`               | Slack Bot アプリケーション                | 0.5 vCPU / 1.0 GiB |
+| Key Vault                  | `kv-slackbot-aca`            | シークレット管理 (Slack トークン等)       | Standard           |
 
 > **💰 概算月額コスト**:
+>
 > - Container Apps: 約 ¥3,000〜¥5,000/月
 > - ACR Standard: 約 ¥6,000/月
 > - Key Vault: 約 ¥500/月
 > - Log Analytics: 約 ¥500〜¥1,000/月 (使用量により変動)
 > - **合計: 約 ¥10,000〜¥13,000/月**
 
-### セットアップ手順
+### 1.3 セットアップ手順
 
 #### 1. Azure CLI を最新版に更新
 
@@ -136,7 +161,7 @@ az group create \
 
 Docker イメージを保存するためのコンテナレジストリを作成します。
 
-### 推奨構成: Standard SKU + Azure RBAC
+### 3.1 推奨構成: Standard SKU + Azure RBAC
 
 本ガイドでは、コストと機能のバランスが良い **Standard SKU** を標準とし、**Azure RBAC によるセキュアな認証**を推奨します。
 
@@ -149,7 +174,7 @@ Docker イメージを保存するためのコンテナレジストリを作成�
 
 > **📝 Premium SKU のみの機能 (オプション)**: Private Endpoint による閉域化、IP 制限、自動保持ポリシー、Geo レプリケーションなど。必要に応じて後から SKU アップグレード可能です。
 
-### 3.1 ACR の作成
+### 3.2 ACR の作成
 
 ```bash
 az acr create \
@@ -168,7 +193,7 @@ az acr create \
 
 > **🔐 セキュリティ**: 管理者ユーザーを無効化し、Azure RBAC で必要最小限の権限を付与します。
 
-### 3.2 Azure RBAC による権限設定
+### 3.3 Azure RBAC による権限設定
 
 #### 開発者への権限付与 (イメージ push 用)
 
@@ -202,9 +227,9 @@ CI/CD パイプライン用の Service Principal 設定は [setup-github.md](set
 
 #### Container Apps 用の権限設定
 
-Container Apps からイメージを pull するための Managed Identity 権限設定は、[7.4 節](#74-container-app-にマネージド-id-を付与) で実施します。
+Container Apps からイメージを pull するための Managed Identity 権限設定は、[8.4 節](#84-acr-へのアクセス権付与-managed-identity) で実施します。
 
-### 3.3 診断ログの有効化
+### 3.4 診断ログの有効化
 
 ACR への認証やイメージ操作をログに記録し、セキュリティ監査に活用します。
 
@@ -248,7 +273,7 @@ az monitor diagnostic-settings create \
 
 ### 3.5 Premium SKU の追加機能 (オプション)
 
-Premium SKU の機能概要のみ記載します。詳細な手順や設定例は「[9.8 Premium SKU の追加機能 (オプション)](#98-premium-sku-の追加機能-オプション)」を参照してください。
+Premium SKU の機能概要のみ記載します。詳細な手順や設定例は「[10.8 Premium SKU の追加機能 (オプション)](#108-premium-sku-の追加機能-オプション)」を参照してください。
 
 **主な機能**: Private Endpoint、IP 制限、自動保持ポリシー、Geo レプリケーション、SKU アップグレード可
 
@@ -260,14 +285,14 @@ Container App を作成する前に、ACR に初期イメージを配置する�
 
 > **📝 補足**: 本番運用では GitHub Actions で自動ビルド・デプロイしますが、初回の動作確認のために手動でイメージをプッシュします。
 
-### 前提条件
+### 4.1 前提条件
 
 - Docker がローカル環境にインストールされていること
 - プロジェクトのルートディレクトリに `Dockerfile` と `package.json` が存在すること
 - Azure CLI でログイン済みであること (`az login`)
-- ACR への `AcrPush` 権限が付与されていること ([2.2 節](#22-azure-rbac-による権限設定) で設定済み)
+- ACR への `AcrPush` 権限が付与されていること ([3.3 節](#33-azure-rbac-による権限設定) で設定済み)
 
-### 4.1 ACR にログイン (Azure RBAC 使用)
+### 4.2 ACR にログイン (Azure RBAC 使用)
 
 ```bash
 az acr login --name <YOUR_ACR_NAME>
@@ -287,9 +312,9 @@ Login Succeeded
 unauthorized: authentication required
 ```
 
-→ [2.2 節](#22-azure-rbac-による権限設定) で `AcrPush` ロールが付与されているか確認してください。詳細なトラブルシューティングは [12.1 ACR 関連のトラブルシューティング](#121-acr関連のトラブルシューティング) を参照してください。
+→ [3.3 節](#33-azure-rbac-による権限設定) で `AcrPush` ロールが付与されているか確認してください。詳細なトラブルシューティングは [12.1 ACR 関連のトラブルシューティング](#121-acr関連のトラブルシューティング) を参照してください。
 
-### 4.2 Docker イメージのビルド
+### 4.3 Docker イメージのビルド
 
 プロジェクトのルートディレクトリで実行:
 
@@ -297,19 +322,19 @@ unauthorized: authentication required
 docker build -t slackbot-sample:1 .
 ```
 
-### 4.3 イメージにタグを付与
+### 4.4 イメージにタグを付与
 
 ```bash
 docker tag slackbot-sample:1 <YOUR_ACR_NAME>.azurecr.io/slackbot-sample:1
 ```
 
-### 4.4 ACR にプッシュ
+### 4.5 ACR にプッシュ
 
 ```bash
 docker push <YOUR_ACR_NAME>.azurecr.io/slackbot-sample:1
 ```
 
-### 4.5 イメージが登録されたか確認
+### 4.6 イメージが登録されたか確認
 
 ```bash
 az acr repository show \
@@ -342,7 +367,7 @@ Result
 
 セキュリティを強化するため、Container Apps を仮想ネットワーク内に配置します。
 
-### セキュアなアーキテクチャ
+### 5.1 セキュアなアーキテクチャ
 
 ```mermaid
 graph TB
@@ -366,7 +391,7 @@ graph TB
     style DB fill:#F25022,stroke:#333,stroke-width:2px,color:#fff
 ```
 
-### リソースの作成
+### 5.2 リソースの作成
 
 ```bash
 # VNET の作成
@@ -487,35 +512,6 @@ az containerapp env create \
 >
 > `az containerapp` は拡張機能(Extension)かつ Preview ステータスのため、この警告が表示されます。
 
-> **⚠️ トラブルシューティング**:
->
-> もし `ManagedEnvironmentInvalidNetworkConfiguration` エラーが発生した場合:
->
-> 1. サブネットに委任が設定されていないことを確認:
->
->    ```bash
->    az network vnet subnet show --resource-group rg-slackbot-aca \
->      --vnet-name slackbot-aca-vnet --name aca-subnet \
->      --query "delegations" -o json
->    ```
->
->    結果が `[]` (空配列) であることを確認してください。
->
-> 2. もし委任がある場合は削除:
->
->    ```bash
->    az network vnet subnet update --resource-group rg-slackbot-aca \
->      --vnet-name slackbot-aca-vnet --name aca-subnet \
->      --remove delegations
->    ```
->
-> 3. リソースプロバイダーが登録済みか確認:
->    ```bash
->    az provider show -n Microsoft.App --query "registrationState"
->    az provider show -n Microsoft.OperationalInsights --query "registrationState"
->    ```
->    両方とも `"Registered"` であることを確認してください。
-
 **パラメータ**:
 
 - `--name`: 環境名 (任意、例: `slackbot-aca-env`)
@@ -543,7 +539,7 @@ az containerapp env create \
 
 > **📝 Note**: CI/CD 用サービスプリンシパルの権限設定は [GitHub の設定](setup-github.md) で後述します。
 
-### 7.1 Key Vault の作成
+### 8.1 Key Vault の作成
 
 ```bash
 az keyvault create \
@@ -1560,7 +1556,7 @@ Error response from daemon: login attempt failed with status: 401 Unauthorized
 
    → `AcrPush` または `AcrPull` ロールが付与されているか確認
 
-3. ロールが未付与の場合は [2.2 節](#22-azure-rbac-による権限設定) を参照して付与
+3. ロールが未付与の場合は [3.3 節](#33-azure-rbac-による権限設定) を参照して付与
 
 4. 再度ログインを試行:
    ```bash
@@ -1613,7 +1609,7 @@ unauthorized: authentication required
    az role assignment list --assignee $USER_OBJECT_ID --scope $ACR_ID --query "[?roleDefinitionName=='AcrPush']"
    ```
 
-3. 権限が無い場合は [2.2 節](#22-azure-rbac-による権限設定) を参照
+3. 権限が無い場合は [3.3 節](#33-azure-rbac-による権限設定) を参照
 
 #### イメージが見つからない
 
@@ -1721,7 +1717,7 @@ manifest unknown: manifest unknown
      --query "[?roleDefinitionName=='AcrPull']"
    ```
 
-4. **権限が無い場合は付与** ([7.4 節](#74-acr-へのアクセス権付与-managed-identity) 参照):
+4. **権限が無い場合は付与** ([8.4 節](#84-acr-へのアクセス権付与-managed-identity) 参照):
 
    ```bash
    az role assignment create \
@@ -2013,6 +2009,32 @@ manifest unknown: manifest unknown
    → `Microsoft.App/environments` が設定されていること
 
 3. **設定が正しくない場合は [4. Virtual Network とサブネットの作成](#4-virtual-network-とサブネットの作成) を再実行**
+
+4. **委任が誤って付与されている場合のリセット**:
+
+   サブネットに意図しない委任が残っていると `ManagedEnvironmentInvalidNetworkConfiguration` エラーになります。委任が不要/誤っている場合は削除して再試行してください。
+
+   ```bash
+   az network vnet subnet show --resource-group rg-slackbot-aca \
+     --vnet-name slackbot-aca-vnet --name aca-subnet \
+     --query "delegations" -o json
+   # 結果が [] (空配列) であることを確認
+
+   az network vnet subnet update --resource-group rg-slackbot-aca \
+     --vnet-name slackbot-aca-vnet --name aca-subnet \
+     --remove delegations
+   ```
+
+5. **リソースプロバイダー登録確認**:
+
+   `Microsoft.App` / `Microsoft.OperationalInsights` が未登録の場合も失敗します。状態が `Registered` であることを確認し、未登録なら登録完了まで待機してください。
+
+   ```bash
+   az provider show -n Microsoft.App --query "registrationState"
+   az provider show -n Microsoft.OperationalInsights --query "registrationState"
+   ```
+
+   両方とも `"Registered"` であれば OK です。
 
 ---
 
