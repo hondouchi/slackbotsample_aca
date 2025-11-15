@@ -68,7 +68,7 @@ GitHub Actions が Azure にアクセスするための App Registration を作�
 
 ```bash
 # 変数の設定
-APP_NAME="gha-slackbotsample-aca-cli"
+APP_NAME="gha-slackbot-aca"
 REPO_OWNER="hondouchi"
 REPO_NAME="slackbotsample_aca"
 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
