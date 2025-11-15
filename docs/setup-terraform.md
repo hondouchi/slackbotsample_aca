@@ -187,7 +187,7 @@ terraform/
 - Container Apps Environment の作成
 - Container App の作成
 - Key Vault シークレット統合
-- Ingress 設定
+- Socket Mode 向け設定（Ingress 無効）
 
 ---
 
