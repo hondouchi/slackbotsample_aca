@@ -53,14 +53,8 @@ resource "azurerm_container_app" "app" {
     }
   }
 
-  ingress {
-    external_enabled = var.ingress_external_enabled
-    target_port      = var.ingress_target_port
-    traffic_weight {
-      latest_revision = true
-      percentage      = 100
-    }
-  }
+  # Socket Mode では HTTP エンドポイントが不要なため Ingress は設定しない
+  # Ingress を有効にするとヘルスチェックが失敗して Unhealthy 状態になる
 
   tags = var.tags
 }

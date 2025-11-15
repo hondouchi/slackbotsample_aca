@@ -119,8 +119,8 @@ module "container_apps" {
     }
   ]
 
-  ingress_external_enabled = true
-  ingress_target_port      = 3000
+  # Socket Mode では Ingress 不要（HTTP エンドポイントを持たない）
+  # ingress_external_enabled と ingress_target_port は削除
 
   tags = local.tags
 }

@@ -87,20 +87,10 @@ variable "secrets" {
   default = []
 }
 
-variable "ingress_external_enabled" {
-  description = "Is the ingress external?"
-  type        = bool
-  default     = true
-}
-
-variable "ingress_target_port" {
-  description = "The target port for ingress traffic"
-  type        = number
-  default     = 3000
-}
-
 variable "tags" {
   description = "A mapping of tags to assign to the resource"
   type        = map(string)
   default     = {}
 }
+
+# Note: Socket Mode アプリは Ingress 不要のため、ingress 関連変数は削除
