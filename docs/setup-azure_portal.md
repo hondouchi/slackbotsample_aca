@@ -328,7 +328,7 @@ Container App の Managed Identity に ACR からイメージを pull する権�
 - [ ] Container App の Managed Identity に Key Vault の `Secrets User` ロール付与
 - [ ] ACR の診断ログが有効化されている (Log Analytics)
 - [ ] Container Apps Environment が Log Analytics に接続されている
-- [ ] Ingress が「内部のみ」に設定されている
+- [ ] Ingress が「無効」に設定されている (Socket Mode では不要)
 
 ### オプション項目 (Premium SKU 必要)
 
