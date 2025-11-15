@@ -27,7 +27,8 @@ jobs:
     env:
       ACR_NAME: slackbotaca
       IMAGE_NAME: slackbot-sample
-      CONTAINER_APP_NAME: slackbot-sample-app
+      # ドキュメント(setup-azure_cli.md)で作成した実コンテナ名に合わせて修正
+      CONTAINER_APP_NAME: slackbot-app
       RESOURCE_GROUP: rg-slackbot-aca
       KEY_VAULT_NAME: kv-slackbot-aca
 
