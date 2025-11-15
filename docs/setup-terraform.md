@@ -244,18 +244,27 @@ container_image_name = "slackbot"
 container_image_tag  = "latest"
 ```
 
-### 3. provider.tf の Backend 設定を確認
+### 3. provider.tf の作成と Backend 設定
 
-`terraform/environments/production/provider.tf` の Backend 設定が正しいか確認します：
+`provider.tf.example` をコピーして、環境に合わせた Backend 設定を行います。
+
+```bash
+cd terraform/environments/production
+cp provider.tf.example provider.tf
+```
+
+`provider.tf` を編集して、手順 1 で作成した Terraform State 管理用のリソース情報を設定します：
 
 ```hcl
 backend "azurerm" {
   resource_group_name  = "rg-terraform-state"
-  storage_account_name = "sttfstateslackbot"  # 手順1で作成した名前
+  storage_account_name = "sttfstateslackbot"  # 手順1で作成した名前に変更
   container_name       = "tfstate"
   key                  = "production.terraform.tfstate"
 }
 ```
+
+> **🔐 重要**: `provider.tf` にはインフラ固有の情報が含まれるため、`.gitignore` で除外されています。チーム内で共有する場合は、`provider.tf.example` を参考にして各自で作成してください。
 
 ---
 
