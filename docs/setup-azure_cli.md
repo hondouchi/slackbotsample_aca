@@ -848,6 +848,15 @@ az role assignment list \
 
 **期待される出力**: ACR リソースへの `AcrPull` ロール割り当てが表示される
 
+> **📝 Note**: `--query` フィルターが結果を返さない場合は、以下のコマンドで ACR スコープの全ロールを確認できます:
+>
+> ```bash
+> ACR_ID=$(az acr show --name <YOUR_ACR_NAME> --query id -o tsv)
+> az role assignment list --assignee $APP_PRINCIPAL_ID --scope $ACR_ID
+> ```
+>
+> JSON 出力から `roleDefinitionName` が `AcrPull` であることを確認してください。
+
 #### Key Vault への権限
 
 ```bash
@@ -858,6 +867,15 @@ az role assignment list \
 ```
 
 **期待される出力**: Key Vault リソースへの `Key Vault Secrets User` ロール割り当てが表示される
+
+> **📝 Note**: `--query` フィルターが結果を返さない場合は、以下のコマンドで Key Vault スコープの全ロールを確認できます:
+>
+> ```bash
+> KV_ID=$(az keyvault show --name <YOUR_KV_NAME> --query id -o tsv)
+> az role assignment list --assignee $APP_PRINCIPAL_ID --scope $KV_ID
+> ```
+>
+> JSON 出力から `roleDefinitionName` が `Key Vault Secrets User` であることを確認してください。
 
 ### 9.3 環境変数とシークレットの確認
 
