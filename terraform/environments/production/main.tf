@@ -1,7 +1,5 @@
 locals {
-  project_name = "slackbot-aca"
-  environment  = "production"
-  location     = "japaneast"
+  environment = "production"
 
   tags = {
     Project     = "SlackBot"
@@ -12,8 +10,8 @@ locals {
 
 # Resource Group
 resource "azurerm_resource_group" "main" {
-  name     = "rg-${local.project_name}"
-  location = local.location
+  name     = var.resource_group_name
+  location = var.location
   tags     = local.tags
 }
 
@@ -21,15 +19,15 @@ resource "azurerm_resource_group" "main" {
 module "network" {
   source = "../../modules/network"
 
-  vnet_name           = "${local.project_name}-vnet"
+  vnet_name           = var.vnet_name
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   address_space       = ["10.0.0.0/16"]
 
-  aca_subnet_name             = "aca-subnet"
+  aca_subnet_name             = var.aca_subnet_name
   aca_subnet_address_prefixes = ["10.0.0.0/23"]
 
-  database_subnet_name             = "database-subnet"
+  database_subnet_name             = var.database_subnet_name
   database_subnet_address_prefixes = ["10.0.2.0/24"]
 
   tags = local.tags
@@ -39,7 +37,7 @@ module "network" {
 module "log_analytics" {
   source = "../../modules/log-analytics"
 
-  name                = "ws-slackapp-aca"
+  name                = var.log_analytics_workspace_name
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = "PerGB2018"
@@ -80,7 +78,7 @@ module "key_vault" {
 module "managed_identity" {
   source = "../../modules/managed-identity"
 
-  identity_name       = "${local.project_name}-identity"
+  identity_name       = var.managed_identity_name
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 
@@ -105,8 +103,8 @@ resource "azurerm_role_assignment" "aca_keyvault_secrets_user" {
 module "container_apps" {
   source = "../../modules/container-apps"
 
-  environment_name           = "${local.project_name}-env"
-  app_name                   = var.container_image_name
+  environment_name           = var.container_apps_environment_name
+  app_name                   = var.container_app_name
   resource_group_name        = azurerm_resource_group.main.name
   location                   = azurerm_resource_group.main.location
   log_analytics_workspace_id = module.log_analytics.id
@@ -116,7 +114,7 @@ module "container_apps" {
 
   registry_server = module.container_registry.login_server
   container_image = "${module.container_registry.login_server}/${var.container_image_name}:${var.container_image_tag}"
-  container_name  = var.container_image_name
+  container_name  = var.container_name
 
   cpu    = 0.5
   memory = "1Gi"

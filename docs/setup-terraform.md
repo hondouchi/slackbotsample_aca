@@ -33,19 +33,27 @@
 
 以下のリソースは `terraform.tfvars` で変数設定が可能です。表中の名前は、変数未設定時のデフォルト値です。
 
-| リソースタイプ                 | 変数名 / 名前 (デフォルト)                | モジュール                         |
-| ------------------------------ | ----------------------------------------- | ---------------------------------- |
-| Resource Group                 | `resource_group_name` / `rg-slackbot-aca` | environments/production/main.tf    |
-| Virtual Network                | `vnet_name` / `slackbot-aca-vnet`         | modules/network/main.tf            |
-| Container Registry             | `acr_name` / 変数必須 (一意の名前)        | modules/container-registry/main.tf |
-| Log Analytics Workspace        | `log_analytics_name` / `ws-slackapp-aca`  | modules/log-analytics/main.tf      |
-| Key Vault                      | `key_vault_name` / 変数必須 (一意の名前)  | modules/key-vault/main.tf          |
-| User Assigned Managed Identity | `identity_name` / `slackbot-aca-identity` | modules/managed-identity/main.tf   |
-| Container Apps Environment     | `environment_name` / `slackbot-aca-env`   | modules/container-apps/main.tf     |
-| Container Apps                 | `app_name` / `slackbot-aca`               | modules/container-apps/main.tf     |
-| Role Assignments (AcrPull, KV) | -                                         | environments/production/main.tf    |
+| リソースタイプ                 | 変数名                            | 名前 (デフォルト)        | モジュール                         |
+| ------------------------------ | --------------------------------- | ------------------------ | ---------------------------------- |
+| Resource Group                 | `resource_group_name`             | `rg-slackbot-aca`        | environments/production/main.tf    |
+| Location                       | `location`                        | `japaneast`              | environments/production/main.tf    |
+| Virtual Network                | `vnet_name`                       | `slackbot-aca-vnet`      | modules/network/main.tf            |
+| ACA Subnet                     | `aca_subnet_name`                 | `aca-subnet`             | modules/network/main.tf            |
+| Database Subnet                | `database_subnet_name`            | `database-subnet`        | modules/network/main.tf            |
+| Log Analytics Workspace        | `log_analytics_workspace_name`    | `ws-slackapp-aca`        | modules/log-analytics/main.tf      |
+| Container Registry             | `acr_name`                        | 変数必須 (一意の名前) ※1 | modules/container-registry/main.tf |
+| Key Vault                      | `key_vault_name`                  | 変数必須 (一意の名前) ※1 | modules/key-vault/main.tf          |
+| User Assigned Managed Identity | `managed_identity_name`           | `slackbot-aca-identity`  | modules/managed-identity/main.tf   |
+| Container Apps Environment     | `container_apps_environment_name` | `slackbot-aca-env`       | modules/container-apps/main.tf     |
+| Container App                  | `container_app_name`              | `slackbot-aca`           | modules/container-apps/main.tf     |
+| Container Image Name           | `container_image_name`            | `slackbot-aca`           | modules/container-apps/main.tf     |
+| Container Image Tag            | `container_image_tag`             | `1`                      | modules/container-apps/main.tf     |
+| Container Name                 | `container_name`                  | `slackbot-aca`           | modules/container-apps/main.tf     |
+| Role Assignments (AcrPull, KV) | -                                 | -                        | environments/production/main.tf    |
 
-> **💡 ヒント**: ACR と Key Vault の名前は Azure 全体で一意である必要があります。`terraform.tfvars` で必ず設定してください。
+> **※1 重要**: ACR と Key Vault の名前は Azure 全体で一意である必要があります。`terraform.tfvars` で必ず設定してください。
+>
+> **💡 ヒント**: すべてのリソース名は `terraform.tfvars` で変更可能です。デフォルト値は `terraform.tfvars.example` を参照してください。
 
 ---
 

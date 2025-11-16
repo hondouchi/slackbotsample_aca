@@ -1,7 +1,27 @@
-# ACR名とKey Vault名を指定してください（グローバルで一意である必要があります）
-acr_name       = "slackbotaca123"
-key_vault_name = "kv-slackbot-aca"
+# リソースグループと基本設定
+resource_group_name = "rg-slackbot-aca"
+location            = "japaneast"
 
-# コンテナイメージの設定
-container_image_name = "slackbot"
-container_image_tag  = "latest"
+# ネットワーク設定
+vnet_name            = "slackbot-aca-vnet"
+aca_subnet_name      = "aca-subnet"
+database_subnet_name = "database-subnet"
+
+# Log Analytics
+log_analytics_workspace_name = "ws-slackapp-aca"
+
+# ACR名とKey Vault名（グローバルで一意である必要があります）
+acr_name       = "slackbotaca123"  # 変更必須: グローバルで一意な名前
+key_vault_name = "kv-slackbot-123" # 変更必須: グローバルで一意な名前（3-24文字）
+
+# Managed Identity
+managed_identity_name = "slackbot-aca-identity"
+
+# Container Apps
+container_apps_environment_name = "slackbot-aca-env"
+container_app_name              = "slackbot-aca"
+
+# コンテナイメージ設定（ACRにプッシュするイメージ名・タグと一致させる）
+container_image_name = "slackbot-aca"
+container_image_tag  = "1"
+container_name       = "slackbot-aca"
