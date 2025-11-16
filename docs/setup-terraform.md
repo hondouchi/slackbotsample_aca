@@ -159,14 +159,14 @@ terraform/
 
 ### モジュールの役割
 
-| モジュール名 | 役割 | 備考（注意ポイント） |
-|--------------|------|------------------------|
-| main (`environments/production/main.tf`) | 全体のオーケストレーション。Resource Group 作成、各モジュール呼び出し、ACR Pull / Key Vault Secrets User などのロール割り当て。 | 段階実行時は `-target` で依存順を意識。ロール割り当ては対象リソース作成後に適用されるため早すぎる適用に注意。 |
-| network | Virtual Network とサブネット（ACA 用 / 拡張用 DB 用）を作成。 | ACA の Consumption パターンではサブネットサイズは /23 以上推奨。Consumption モードでは **delegation 不要**。将来拡張でアドレス枯渇しないよう CIDR 設計を事前検討。 |
-| log-analytics | Log Analytics Workspace 作成および保持期間設定。 | 保持期間はコストと監査要件で調整。後から変更すると課金影響が出るため初期ポリシーを決めておく。 |
-| container-registry | Azure Container Registry 作成と診断設定。イメージ格納。 | イメージを事前 push しないと ACA リビジョンがタイムアウト。SKU は Standard 想定。必要な RBAC (AcrPull/AcrPush) は利用者/Managed Identity に別途付与。 |
-| key-vault | Key Vault 作成（Slack トークン等のシークレット管理）。RBAC モード / Soft Delete。 | シークレット値は Terraform に含めない（State 漏えい防止）。初回は `Key Vault Secrets Officer` を自分へ一時付与し CLI で投入。Purge 設定は運用ポリシーと整合確認。 |
-| container-apps | Container Apps Environment と Container App 作成。イメージ / Key Vault シークレット参照。Ingress 無効（Socket Mode 運用）。 | `registry.identity` と `secret.identity` は大文字 `System` 必須。イメージとシークレットが未準備だとプロビジョン失敗。`revision_mode = "Single"` で安定運用。Ingress を有効化すると不要なヘルスチェックで Unhealthy になる場合あり。 |
+| モジュール名                             | 役割                                                                                                                            | 備考（注意ポイント）                                                                                                                                                                                                                |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| main (`environments/production/main.tf`) | 全体のオーケストレーション。Resource Group 作成、各モジュール呼び出し、ACR Pull / Key Vault Secrets User などのロール割り当て。 | 段階実行時は `-target` で依存順を意識。ロール割り当ては対象リソース作成後に適用されるため早すぎる適用に注意。                                                                                                                       |
+| network                                  | Virtual Network とサブネット（ACA 用 / 拡張用 DB 用）を作成。                                                                   | ACA の Consumption パターンではサブネットサイズは /23 以上推奨。Consumption モードでは **delegation 不要**。将来拡張でアドレス枯渇しないよう CIDR 設計を事前検討。                                                                  |
+| log-analytics                            | Log Analytics Workspace 作成および保持期間設定。                                                                                | 保持期間はコストと監査要件で調整。後から変更すると課金影響が出るため初期ポリシーを決めておく。                                                                                                                                      |
+| container-registry                       | Azure Container Registry 作成と診断設定。イメージ格納。                                                                         | イメージを事前 push しないと ACA リビジョンがタイムアウト。SKU は Standard 想定。必要な RBAC (AcrPull/AcrPush) は利用者/Managed Identity に別途付与。                                                                               |
+| key-vault                                | Key Vault 作成（Slack トークン等のシークレット管理）。RBAC モード / Soft Delete。                                               | シークレット値は Terraform に含めない（State 漏えい防止）。初回は `Key Vault Secrets Officer` を自分へ一時付与し CLI で投入。Purge 設定は運用ポリシーと整合確認。                                                                   |
+| container-apps                           | Container Apps Environment と Container App 作成。イメージ / Key Vault シークレット参照。Ingress 無効（Socket Mode 運用）。     | `registry.identity` と `secret.identity` は大文字 `System` 必須。イメージとシークレットが未準備だとプロビジョン失敗。`revision_mode = "Single"` で安定運用。Ingress を有効化すると不要なヘルスチェックで Unhealthy になる場合あり。 |
 
 ---
 
@@ -316,8 +316,8 @@ az acr login --name $ACR_NAME
 cd ../../../
 
 # イメージをビルド & プッシュ
-docker build -t ${ACR_NAME}.azurecr.io/slackbot-aca:latest .
-docker push ${ACR_NAME}.azurecr.io/slackbot-aca:latest
+docker build -t ${ACR_NAME}.azurecr.io/slackbot-aca:1 .
+docker push ${ACR_NAME}.azurecr.io/slackbot-aca:1
 
 # プッシュ確認
 az acr repository show-tags \
@@ -359,11 +359,16 @@ az keyvault secret set \
   --name SLACK-APP-TOKEN \
   --value "xapp-YOUR-ACTUAL-APP-TOKEN"
 
+az keyvault secret set \
+  --vault-name $KV_NAME \
+  --name BOT-USER-ID \
+  --value "U08QCB7J1PH"
+
 # シークレット登録確認
 az keyvault secret list --vault-name $KV_NAME -o table
 ```
 
-> **🔐 重要**: `xoxb-...` と `xapp-...` は Slack App 管理画面から取得した実際のトークンに置き換えてください。
+> **🔐 重要**: `xoxb-...`, `xapp-...`, および Bot User ID は Slack App 管理画面から取得した実際の値に置き換えてください。
 
 ---
 
