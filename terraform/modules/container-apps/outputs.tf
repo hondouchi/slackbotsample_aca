@@ -14,6 +14,6 @@ output "app_name" {
 }
 
 output "app_identity_principal_id" {
-  description = "The Principal ID of the System Assigned Managed Identity"
-  value       = azurerm_container_app.app.identity[0].principal_id
+  description = "The Principal ID of the Managed Identity (System or User Assigned)"
+  value       = var.user_assigned_identity_id != null ? null : try(azurerm_container_app.app.identity[0].principal_id, null)
 }

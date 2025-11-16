@@ -68,6 +68,12 @@ variable "max_replicas" {
   default     = 10
 }
 
+variable "user_assigned_identity_id" {
+  description = "The ID of the user assigned managed identity (optional, uses SystemAssigned if null)"
+  type        = string
+  default     = null
+}
+
 variable "env_vars" {
   description = "Environment variables for the container"
   type = list(object({

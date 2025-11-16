@@ -16,12 +16,13 @@ resource "azurerm_container_app" "app" {
   revision_mode                = "Single"
 
   identity {
-    type = "SystemAssigned"
+    type         = var.user_assigned_identity_id != null ? "UserAssigned" : "SystemAssigned"
+    identity_ids = var.user_assigned_identity_id != null ? [var.user_assigned_identity_id] : null
   }
 
   registry {
     server   = var.registry_server
-    identity = "System"
+    identity = var.user_assigned_identity_id != null ? var.user_assigned_identity_id : "System"
   }
 
   template {
@@ -50,7 +51,7 @@ resource "azurerm_container_app" "app" {
     content {
       name                = secret.value.name
       key_vault_secret_id = secret.value.key_vault_secret_id
-      identity            = "System"
+      identity            = var.user_assigned_identity_id != null ? var.user_assigned_identity_id : "System"
     }
   }
 

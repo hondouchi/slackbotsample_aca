@@ -76,25 +76,52 @@ module "key_vault" {
   tags = local.tags
 }
 
-# Container Apps Module
+# Managed Identity Module (Phase 4a: Create identity first)
+module "managed_identity" {
+  source = "../../modules/managed-identity"
+
+  identity_name       = "${local.project_name}-identity"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+
+  tags = local.tags
+}
+
+# Role Assignment: Managed Identity to ACR (Phase 4a: Assign roles before Container App)
+resource "azurerm_role_assignment" "aca_acr_pull" {
+  scope                = module.container_registry.id
+  role_definition_name = "AcrPull"
+  principal_id         = module.managed_identity.principal_id
+}
+
+# Role Assignment: Managed Identity to Key Vault (Phase 4a: Assign roles before Container App)
+resource "azurerm_role_assignment" "aca_keyvault_secrets_user" {
+  scope                = module.key_vault.id
+  role_definition_name = "Key Vault Secrets User"
+  principal_id         = module.managed_identity.principal_id
+}
+
+# Container Apps Module (Phase 4b: Create Container App with pre-configured identity)
 module "container_apps" {
   source = "../../modules/container-apps"
 
   environment_name           = "${local.project_name}-env"
-  app_name                   = "slackbot-app"
+  app_name                   = var.container_image_name
   resource_group_name        = azurerm_resource_group.main.name
   location                   = azurerm_resource_group.main.location
   log_analytics_workspace_id = module.log_analytics.id
   infrastructure_subnet_id   = module.network.aca_subnet_id
 
+  user_assigned_identity_id = module.managed_identity.id  # Use pre-created identity
+
   registry_server = module.container_registry.login_server
   container_image = "${module.container_registry.login_server}/${var.container_image_name}:${var.container_image_tag}"
-  container_name  = "slackbot"
+  container_name  = var.container_image_name
 
   cpu    = 0.5
   memory = "1Gi"
 
-  min_replicas = 0
+  min_replicas = 1  # Socket Mode requires always-on connection
   max_replicas = 10
 
   env_vars = [
@@ -105,6 +132,10 @@ module "container_apps" {
     {
       name        = "SLACK_APP_TOKEN"
       secret_name = "slack-app-token"
+    },
+    {
+      name        = "BOT_USER_ID"
+      secret_name = "bot-user-id"
     }
   ]
 
@@ -116,25 +147,18 @@ module "container_apps" {
     {
       name                = "slack-app-token"
       key_vault_secret_id = "${module.key_vault.vault_uri}secrets/SLACK-APP-TOKEN"
-    }
+    },
+    {
+      name                = "bot-user-id"
+      key_vault_secret_id = "${module.key_vault.vault_uri}secrets/BOT-USER-ID"
+    },
   ]
 
-  # Socket Mode では Ingress 不要（HTTP エンドポイントを持たない）
-  # ingress_external_enabled と ingress_target_port は削除
-
   tags = local.tags
-}
 
-# Role Assignment: Container App to ACR
-resource "azurerm_role_assignment" "aca_acr_pull" {
-  scope                = module.container_registry.id
-  role_definition_name = "AcrPull"
-  principal_id         = module.container_apps.app_identity_principal_id
-}
-
-# Role Assignment: Container App to Key Vault
-resource "azurerm_role_assignment" "aca_keyvault_secrets_user" {
-  scope                = module.key_vault.id
-  role_definition_name = "Key Vault Secrets User"
-  principal_id         = module.container_apps.app_identity_principal_id
+  # Ensure identity and roles are ready before creating Container App
+  depends_on = [
+    azurerm_role_assignment.aca_acr_pull,
+    azurerm_role_assignment.aca_keyvault_secrets_user
+  ]
 }
