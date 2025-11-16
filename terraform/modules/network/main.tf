@@ -13,14 +13,7 @@ resource "azurerm_subnet" "aca_subnet" {
   virtual_network_name = azurerm_virtual_network.vnet.name
   address_prefixes     = var.aca_subnet_address_prefixes
 
-  delegation {
-    name = "aca-delegation"
-
-    service_delegation {
-      name    = "Microsoft.App/environments"
-      actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
-    }
-  }
+  # Consumption モードでは delegation 不要
 }
 
 resource "azurerm_subnet" "database_subnet" {
