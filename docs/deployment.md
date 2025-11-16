@@ -2,6 +2,19 @@
 
 このドキュメントでは、ローカル開発から本番環境へのデプロイまでの流れを説明します。
 
+## 📦 初回デプロイの前提条件
+
+初回デプロイを実行する前に、以下の Terraform セットアップが完了している必要があります:
+
+1. ✅ [setup-terraform.md](setup-terraform.md) のフェーズ 1 ～ 6 を完了
+2. ✅ ACR にイメージがプッシュ済み
+3. ✅ Key Vault にシークレットが登録済み
+4. ✅ Container App が正常起動 (Healthy 状態)
+
+> **💡 重要**: これらの前提条件を満たしていない場合、GitHub Actions による自動デプロイが失敗します。必ず [setup-terraform.md](setup-terraform.md) の段階的手順を先に完了してください。
+
+---
+
 ## ブランチ戦略
 
 ```

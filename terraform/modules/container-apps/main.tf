@@ -21,7 +21,7 @@ resource "azurerm_container_app" "app" {
 
   registry {
     server   = var.registry_server
-    identity = "system"
+    identity = "System"
   }
 
   template {
@@ -50,7 +50,7 @@ resource "azurerm_container_app" "app" {
     content {
       name                = secret.value.name
       key_vault_secret_id = secret.value.key_vault_secret_id
-      identity            = "system"
+      identity            = "System"
     }
   }
 

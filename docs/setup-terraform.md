@@ -270,74 +270,93 @@ backend "azurerm" {
 
 ## ローカルでの Terraform 実行
 
-### 1. Terraform の初期化
+初回構築時は、イメージ未作成による Container App のタイムアウトを回避するため、以下の段階的手順で実行します。
+
+### フェーズ 0: 準備
 
 ```bash
 cd terraform/environments/production
+
+# Terraform 初期化
 terraform init
-```
 
-### 2. フォーマットチェック
-
-```bash
+# フォーマットチェック
 terraform fmt -check -recursive
-```
 
-フォーマットを自動修正する場合：
-
-```bash
-terraform fmt -recursive
-```
-
-### 3. 構文検証
-
-```bash
+# 構文検証
 terraform validate
 ```
 
-### 4. プランの確認
+---
+
+### フェーズ 1: 基盤リソースの作成 (RG + ACR + Log Analytics + Key Vault)
+
+Container App が参照する基盤リソースのみを先行作成します。
 
 ```bash
-terraform plan
+# プラン確認
+terraform plan \
+  -target=azurerm_resource_group.main \
+  -target=module.network \
+  -target=module.log_analytics \
+  -target=module.container_registry \
+  -target=module.key_vault
+
+# 作成実行
+terraform apply \
+  -target=azurerm_resource_group.main \
+  -target=module.network \
+  -target=module.log_analytics \
+  -target=module.container_registry \
+  -target=module.key_vault \
+  -auto-approve
 ```
 
-### 5. リソースの作成
+**作成されるリソース**:
+
+- Resource Group (`rg-slackbot-aca`)
+- Virtual Network + Subnets
+- Log Analytics Workspace
+- Container Registry
+- Key Vault
+
+---
+
+### フェーズ 2: ACR へイメージをプッシュ
+
+Container App 作成前に、起動可能なイメージを ACR に配置します。
 
 ```bash
-terraform apply
-```
+# ACR 名を取得
+ACR_NAME=$(terraform output -raw container_registry_name)
 
-確認プロンプトで `yes` と入力します。
-
-### 6. 出力の確認
-
-```bash
-terraform output
-```
-
-主な出力値：
-
-- `container_app_url`: Container App の URL
-- `container_registry_login_server`: ACR のログインサーバー
-- `key_vault_name`: Key Vault の名前
-
-### 7. 初回のイメージプッシュ
-
-Container App が動作するには、ACR にイメージをプッシュする必要があります。
-
-```bash
 # ACR にログイン
-az acr login --name <ACR_NAME>
+az acr login --name $ACR_NAME
 
-# イメージのビルドとプッシュ
-cd ../../../  # プロジェクトルートに移動
-docker build -t <ACR_NAME>.azurecr.io/slackbot:latest .
-docker push <ACR_NAME>.azurecr.io/slackbot:latest
+# プロジェクトルートへ移動
+cd ../../../
+
+# イメージをビルド & プッシュ
+docker build -t ${ACR_NAME}.azurecr.io/slackbot-aca:latest .
+docker push ${ACR_NAME}.azurecr.io/slackbot-aca:latest
+
+# プッシュ確認
+az acr repository show-tags \
+  --name $ACR_NAME \
+  --repository slackbot-aca \
+  -o table
 ```
 
-### 8. Key Vault にシークレットを設定
+---
+
+### フェーズ 3: Key Vault へシークレットを登録
+
+Container App が起動時に参照するシークレットを設定します。
 
 ```bash
+# production ディレクトリへ戻る
+cd terraform/environments/production
+
 # Key Vault 名を取得
 KV_NAME=$(terraform output -raw key_vault_name)
 
@@ -350,27 +369,95 @@ az role assignment create \
   --role "Key Vault Secrets Officer" \
   --scope $KV_ID
 
-# シークレットの設定
+# Slack のシークレットを設定
 az keyvault secret set \
   --vault-name $KV_NAME \
   --name SLACK-BOT-TOKEN \
-  --value "xoxb-your-bot-token"
+  --value "xoxb-YOUR-ACTUAL-BOT-TOKEN"
 
 az keyvault secret set \
   --vault-name $KV_NAME \
   --name SLACK-APP-TOKEN \
-  --value "xapp-your-app-token"
+  --value "xapp-YOUR-ACTUAL-APP-TOKEN"
+
+# シークレット登録確認
+az keyvault secret list --vault-name $KV_NAME -o table
 ```
 
-### 9. Container App のリビジョン更新
+> **🔐 重要**: `xoxb-...` と `xapp-...` は Slack App 管理画面から取得した実際のトークンに置き換えてください。
 
-シークレットを設定した後、Container App を再起動します：
+---
+
+### フェーズ 4: Container Apps の作成
+
+イメージとシークレットの準備が完了したので、Container Apps を作成します。
 
 ```bash
-az containerapp revision restart \
-  --name slackbot-app \
-  --resource-group rg-slackbot-aca
+# 全体プランで差分確認
+terraform plan
+
+# 残りのリソースを作成
+terraform apply -auto-approve
 ```
+
+**作成されるリソース**:
+
+- Container Apps Environment
+- Container App
+- Role Assignments (AcrPull, Key Vault Secrets User)
+
+---
+
+### フェーズ 5: デプロイ確認と動作テスト
+
+```bash
+# Container App の状態確認
+az containerapp show \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --query "{name:name,state:properties.provisioningState,latestRevision:properties.latestRevisionName}" \
+  -o table
+
+# リビジョンの健全性確認
+az containerapp revision list \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --query "[].{name:name,active:properties.active,health:properties.healthState,replicas:properties.replicas}" \
+  -o table
+
+# ログをリアルタイム表示
+az containerapp logs show \
+  --name slackbot-app \
+  --resource-group rg-slackbot-aca \
+  --follow
+```
+
+**期待される結果**:
+
+- `provisioningState`: `Succeeded`
+- `healthState`: `Healthy`
+- ログに `⚡️ Bolt app is running!` が表示される
+
+---
+
+### フェーズ 6: Slack での動作確認
+
+1. Slack ワークスペースで Bot を招待したチャンネルへ移動
+2. メッセージを送信: `@slackbot-app こんにちは`
+3. Bot からの応答を確認
+
+---
+
+### 全体整合性の最終確認
+
+```bash
+# State と実リソースの差分がないことを確認
+terraform plan
+
+# 出力: "No changes. Your infrastructure matches the configuration."
+```
+
+このメッセージが表示されれば、すべてのリソースが正常に作成されています。
 
 ---
 
