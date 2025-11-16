@@ -31,16 +31,21 @@
 
 ### 作成されるリソース
 
-| リソースタイプ                 | 名前 (デフォルト)   | モジュール         |
-| ------------------------------ | ------------------- | ------------------ |
-| Resource Group                 | `rg-slackbot-aca`   | main.tf            |
-| Virtual Network                | `slackbot-aca-vnet` | network            |
-| Container Registry             | 変数で指定          | container-registry |
-| Log Analytics Workspace        | `ws-slackapp-aca`   | log-analytics      |
-| Key Vault                      | 変数で指定          | key-vault          |
-| Container Apps Environment     | `slackbot-aca-env`  | container-apps     |
-| Container Apps                 | `slackbot-app`      | container-apps     |
-| Role Assignments (AcrPull, KV) | -                   | main.tf            |
+以下のリソースは `terraform.tfvars` で変数設定が可能です。表中の名前は、変数未設定時のデフォルト値です。
+
+| リソースタイプ                 | 変数名 / 名前 (デフォルト)                | モジュール                         |
+| ------------------------------ | ----------------------------------------- | ---------------------------------- |
+| Resource Group                 | `resource_group_name` / `rg-slackbot-aca` | environments/production/main.tf    |
+| Virtual Network                | `vnet_name` / `slackbot-aca-vnet`         | modules/network/main.tf            |
+| Container Registry             | `acr_name` / 変数必須 (一意の名前)        | modules/container-registry/main.tf |
+| Log Analytics Workspace        | `log_analytics_name` / `ws-slackapp-aca`  | modules/log-analytics/main.tf      |
+| Key Vault                      | `key_vault_name` / 変数必須 (一意の名前)  | modules/key-vault/main.tf          |
+| User Assigned Managed Identity | `identity_name` / `slackbot-aca-identity` | modules/managed-identity/main.tf   |
+| Container Apps Environment     | `environment_name` / `slackbot-aca-env`   | modules/container-apps/main.tf     |
+| Container Apps                 | `app_name` / `slackbot-aca`               | modules/container-apps/main.tf     |
+| Role Assignments (AcrPull, KV) | -                                         | environments/production/main.tf    |
+
+> **💡 ヒント**: ACR と Key Vault の名前は Azure 全体で一意である必要があります。`terraform.tfvars` で必ず設定してください。
 
 ---
 
@@ -58,6 +63,12 @@
   wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
   echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
   sudo apt update && sudo apt install terraform
+
+  # バージョンアップ方法
+  sudo apt update && sudo apt upgrade terraform
+
+  # 特定バージョンをインストールしたい場合
+  sudo apt install terraform=1.9.0-1
   ```
 
 - **Azure CLI**: バージョン 2.28.0 以上
@@ -132,7 +143,9 @@ terraform/
 │       ├── main.tf               # メインのリソース定義
 │       ├── variables.tf          # 変数定義
 │       ├── outputs.tf            # 出力値定義
-│       ├── provider.tf           # プロバイダーと Backend 設定
+│       ├── provider.tf           # プロバイダーと Backend 設定 (Git除外)
+│       ├── provider.tf.example   # プロバイダー設定の例
+│       ├── terraform.tfvars      # 変数設定ファイル (Git除外)
 │       └── terraform.tfvars.example  # 変数設定の例
 └── modules/
     ├── container-registry/       # ACR モジュール
@@ -151,6 +164,10 @@ terraform/
     │   ├── main.tf
     │   ├── variables.tf
     │   └── outputs.tf
+    ├── managed-identity/         # User Assigned Managed Identity モジュール
+    │   ├── main.tf
+    │   ├── variables.tf
+    │   └── outputs.tf
     └── network/                  # Virtual Network モジュール
         ├── main.tf
         ├── variables.tf
@@ -159,18 +176,19 @@ terraform/
 
 ### モジュールの役割
 
-| モジュール名                             | 役割                                                                                                                            | 備考（注意ポイント）                                                                                                                                                                                                                |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| main (`environments/production/main.tf`) | 全体のオーケストレーション。Resource Group 作成、各モジュール呼び出し、ACR Pull / Key Vault Secrets User などのロール割り当て。 | 段階実行時は `-target` で依存順を意識。ロール割り当ては対象リソース作成後に適用されるため早すぎる適用に注意。                                                                                                                       |
-| network                                  | Virtual Network とサブネット（ACA 用 / 拡張用 DB 用）を作成。                                                                   | ACA の Consumption パターンではサブネットサイズは /23 以上推奨。Consumption モードでは **delegation 不要**。将来拡張でアドレス枯渇しないよう CIDR 設計を事前検討。                                                                  |
-| log-analytics                            | Log Analytics Workspace 作成および保持期間設定。                                                                                | 保持期間はコストと監査要件で調整。後から変更すると課金影響が出るため初期ポリシーを決めておく。                                                                                                                                      |
-| container-registry                       | Azure Container Registry 作成と診断設定。イメージ格納。                                                                         | イメージを事前 push しないと ACA リビジョンがタイムアウト。SKU は Standard 想定。必要な RBAC (AcrPull/AcrPush) は利用者/Managed Identity に別途付与。                                                                               |
-| key-vault                                | Key Vault 作成（Slack トークン等のシークレット管理）。RBAC モード / Soft Delete。                                               | シークレット値は Terraform に含めない（State 漏えい防止）。初回は `Key Vault Secrets Officer` を自分へ一時付与し CLI で投入。Purge 設定は運用ポリシーと整合確認。                                                                   |
-| container-apps                           | Container Apps Environment と Container App 作成。イメージ / Key Vault シークレット参照。Ingress 無効（Socket Mode 運用）。     | `registry.identity` と `secret.identity` は大文字 `System` 必須。イメージとシークレットが未準備だとプロビジョン失敗。`revision_mode = "Single"` で安定運用。Ingress を有効化すると不要なヘルスチェックで Unhealthy になる場合あり。 |
+| モジュール名                             | 役割                                                                                                                            | 備考（注意ポイント）                                                                                                                                                      |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| main (`environments/production/main.tf`) | 全体のオーケストレーション。Resource Group 作成、各モジュール呼び出し、ACR Pull / Key Vault Secrets User などのロール割り当て。 | 段階実行時は `-target` で依存順を意識。ロール割り当ては対象リソース作成後に適用されるため早すぎる適用に注意。                                                             |
+| network                                  | Virtual Network とサブネット（ACA 用 / 拡張用 DB 用）を作成。                                                                   | ACA の Consumption パターンではサブネットサイズは /23 以上推奨。Consumption モードでは **delegation 不要**。将来拡張でアドレス枯渇しないよう CIDR 設計を事前検討。        |
+| log-analytics                            | Log Analytics Workspace 作成および保持期間設定。                                                                                | 保持期間はコストと監査要件で調整。後から変更すると課金影響が出るため初期ポリシーを決めておく。                                                                            |
+| container-registry                       | Azure Container Registry 作成と診断設定。イメージ格納。                                                                         | イメージを事前 push しないと ACA リビジョンがタイムアウト。SKU は Standard 想定。必要な RBAC (AcrPull/AcrPush) は利用者/Managed Identity に別途付与。                     |
+| key-vault                                | Key Vault 作成（Slack トークン等のシークレット管理）。RBAC モード / Soft Delete。                                               | シークレット値は Terraform に含めない（State 漏えい防止）。初回は `Key Vault Secrets Officer` を自分へ一時付与し CLI で投入。Purge 設定は運用ポリシーと整合確認。         |
+| managed-identity                         | User Assigned Managed Identity 作成。Container App に割り当て、ACR と Key Vault へのアクセス権限を事前設定。                    | Container App より前に作成し、ロール割り当て完了後に Container App を作成することで、リビジョンプロビジョニング時のタイムアウトを回避。                                   |
+| container-apps                           | Container Apps Environment と Container App 作成。イメージ / Key Vault シークレット参照。Ingress 無効（Socket Mode 運用）。     | User Assigned Managed Identity を使用。`min_replicas = 1` (Socket Mode 必須)。イメージとシークレットが未準備だとプロビジョン失敗。`revision_mode = "Single"` で安定運用。 |
 
 ---
 
-## 初回セットアップ
+## Terraform 実行環境の構築
 
 ### 1. Terraform State 用リソースの作成
 
@@ -215,13 +233,16 @@ cp terraform.tfvars.example terraform.tfvars
 `terraform.tfvars` を編集して、一意の名前を設定します：
 
 ```hcl
-# グローバルで一意な名前に変更してください
+# グローバルで一意な名前に変更してください (必須)
 acr_name       = "slackbotaca<YOUR_UNIQUE_ID>"
 key_vault_name = "kv-slackbot-<YOUR_UNIQUE_ID>"
 
-container_image_name = "slackbot"
-container_image_tag  = "latest"
+# イメージ名とタグ (フェーズ2でプッシュ時に使用)
+container_image_name = "slackbot-aca"
+container_image_tag  = "1"
 ```
+
+> **💡 重要**: `container_image_name` と `container_image_tag` は、後のフェーズ 2 で ACR にプッシュするイメージ名・タグと一致させる必要があります。
 
 ### 3. provider.tf の作成と Backend 設定
 
@@ -247,9 +268,11 @@ backend "azurerm" {
 
 ---
 
-## ローカルでの Terraform 実行
+## ローカルでの Terraform 実行（初期構築用）
 
 初回構築時は、イメージ未作成による Container App のタイムアウトを回避するため、以下の段階的手順で実行します。
+
+> **⚠️ 注意**: エラーが発生した場合は、本ドキュメント後半の「[初期構築時のトラブルシューティング](#初期構築時のトラブルシューティング)」を参照してください。
 
 ### フェーズ 0: 準備
 
@@ -305,6 +328,8 @@ terraform apply \
 
 Container App 作成前に、起動可能なイメージを ACR に配置します。
 
+> **💡 重要**: イメージ名 (`slackbot-aca`) とタグ (`1`) は、`terraform.tfvars` で設定した `container_image_name` と `container_image_tag` の値と一致させてください。
+
 ```bash
 # ACR 名を取得
 ACR_NAME=$(terraform output -raw container_registry_name)
@@ -316,6 +341,7 @@ az acr login --name $ACR_NAME
 cd ../../../
 
 # イメージをビルド & プッシュ
+# 注: イメージ名とタグは terraform.tfvars の設定に合わせる
 docker build -t ${ACR_NAME}.azurecr.io/slackbot-aca:1 .
 docker push ${ACR_NAME}.azurecr.io/slackbot-aca:1
 
@@ -352,23 +378,27 @@ az role assignment create \
 az keyvault secret set \
   --vault-name $KV_NAME \
   --name SLACK-BOT-TOKEN \
-  --value "xoxb-YOUR-ACTUAL-BOT-TOKEN"
+  --value "<xoxb-YOUR-ACTUAL-BOT-TOKEN>"
 
 az keyvault secret set \
   --vault-name $KV_NAME \
   --name SLACK-APP-TOKEN \
-  --value "xapp-YOUR-ACTUAL-APP-TOKEN"
+  --value "<xapp-YOUR-ACTUAL-APP-TOKEN>"
 
 az keyvault secret set \
   --vault-name $KV_NAME \
   --name BOT-USER-ID \
-  --value "U08QCB7J1PH"
+  --value "<U01234567AB>"
 
 # シークレット登録確認
 az keyvault secret list --vault-name $KV_NAME -o table
 ```
 
-> **🔐 重要**: `xoxb-...`, `xapp-...`, および Bot User ID は Slack App 管理画面から取得した実際の値に置き換えてください。
+> **🔐 重要**: `<xoxb-...>`, `<xapp-...>`, および `<U01234567AB>` は Slack App 管理画面から取得した実際の値に置き換えてください。
+>
+> - `SLACK-BOT-TOKEN`: Bot User OAuth Token (例: `xoxb-XXXXXXXXXXXX-XXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXX`)
+> - `SLACK-APP-TOKEN`: App-Level Token (例: `xapp-X-XXXXXXXXXXX-XXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX`)
+> - `BOT-USER-ID`: Bot User ID (例: `UXXXXXXXXXX`) - Slack アプリの「App Home」から確認可能
 
 ---
 
@@ -381,14 +411,19 @@ az keyvault secret list --vault-name $KV_NAME -o table
 terraform plan
 
 # 残りのリソースを作成
-terraform apply -auto-approve
+terraform apply
 ```
+
+> **💡 ヒント**: `terraform apply` 実行時に `Do you want to perform these actions?` と確認されます。内容を確認して `yes` と入力してください。
+
+> **⚠️ エラー発生時**: エラーが発生した場合は、本ドキュメント後半の「[初期構築時のトラブルシューティング](#初期構築時のトラブルシューティング)」を参照してください。特に Container App 作成時のタイムアウトエラーについて詳しく解説しています。
 
 **作成されるリソース**:
 
+- User Assigned Managed Identity
+- Role Assignments (AcrPull, Key Vault Secrets User)
 - Container Apps Environment
 - Container App
-- Role Assignments (AcrPull, Key Vault Secrets User)
 
 ---
 
@@ -397,21 +432,27 @@ terraform apply -auto-approve
 ```bash
 # Container App の状態確認
 az containerapp show \
-  --name slackbot-app \
+  --name slackbot-aca \
   --resource-group rg-slackbot-aca \
   --query "{name:name,state:properties.provisioningState,latestRevision:properties.latestRevisionName}" \
   -o table
 
 # リビジョンの健全性確認
 az containerapp revision list \
-  --name slackbot-app \
+  --name slackbot-aca \
   --resource-group rg-slackbot-aca \
   --query "[].{name:name,active:properties.active,health:properties.healthState,replicas:properties.replicas}" \
   -o table
 
-# ログをリアルタイム表示
+# アプリケーションログを確認 (最新50行)
 az containerapp logs show \
-  --name slackbot-app \
+  --name slackbot-aca \
+  --resource-group rg-slackbot-aca \
+  --tail 50
+
+# ログをリアルタイム表示 (Ctrl+C で終了)
+az containerapp logs show \
+  --name slackbot-aca \
   --resource-group rg-slackbot-aca \
   --follow
 ```
@@ -420,14 +461,21 @@ az containerapp logs show \
 
 - `provisioningState`: `Succeeded`
 - `healthState`: `Healthy`
-- ログに `⚡️ Bolt app is running!` が表示される
+- ログに以下のメッセージが表示される：
+  ```
+  "Log": "Slack Bot is running!"
+  "Log": "Current Bot Version: v1.0.x"
+  "Log": "Now connected to Slack"
+  ```
+
+> **💡 ログ確認方法**: `az containerapp logs show` コマンドで表示されるログに上記メッセージが含まれていれば、Slack bot が正常に起動し Socket Mode で接続されています。
 
 ---
 
 ### フェーズ 6: Slack での動作確認
 
 1. Slack ワークスペースで Bot を招待したチャンネルへ移動
-2. メッセージを送信: `@slackbot-app こんにちは`
+2. メッセージを送信: `@slackbot-aca こんにちは`
 3. Bot からの応答を確認
 
 ---
@@ -491,52 +539,143 @@ GitHub の Environment Protection を設定することで、apply 前に承認�
 
 ---
 
-## トラブルシューティング
+## 初期構築時のトラブルシューティング
 
-### よくある問題
+### 1. Backend の初期化エラー
 
-#### 1. **Backend の初期化エラー**
+**エラーメッセージ**:
 
 ```
 Error: Failed to get existing workspaces: storage: service returned error
 ```
 
-**解決方法**:
+**原因と解決方法**:
 
 - Azure CLI でログインしているか確認: `az account show`
 - Storage Account が存在するか確認
 - Storage Account へのアクセス権限があるか確認
 
-#### 2. **リソース名の重複エラー**
+---
+
+### 2. リソース名の重複エラー
+
+**エラーメッセージ**:
 
 ```
 Error: A resource with the ID already exists
 ```
 
-**解決方法**:
+**原因と解決方法**:
 
 - `terraform.tfvars` の `acr_name` と `key_vault_name` を一意の名前に変更
 - ACR は全グローバルで一意、Key Vault は 3-24 文字の制限あり
 
-#### 3. **State のロック**
+---
+
+### 3. Container App 作成時のタイムアウトエラー（重要）
+
+**エラーメッセージ**:
+
+```
+Error: waiting for creation of Linux Container App "slackbot-aca"
+(Resource Group "rg-slackbot-aca"): Code="ContainerAppOperationError"
+Message="Operation expired"
+```
+
+**原因**:
+Container App のリビジョンプロビジョニング時に、以下のいずれかの問題が発生しています：
+
+1. **イメージが ACR に存在しない、またはタグが間違っている**
+   - Container App は起動時に ACR からイメージを pull しようとしますが、イメージが見つからない場合、20 分程度のタイムアウト後にエラーになります
+2. **Key Vault のシークレットが未設定**
+
+   - 環境変数として Key Vault のシークレット参照が設定されていますが、該当シークレットが存在しない場合、同様にタイムアウトします
+
+3. **Role Assignment が未完了（古い実装の場合）**
+   - User Assigned Managed Identity への ACR Pull または Key Vault Secrets User ロールの付与が完了していない状態で Container App が作成された場合に発生
+
+**解決方法**:
+
+#### ステップ 1: イメージの確認
+
+```bash
+# ACR にイメージが存在するか確認
+ACR_NAME=$(terraform output -raw container_registry_name)
+az acr repository show-tags \
+  --name $ACR_NAME \
+  --repository slackbot-aca \
+  -o table
+
+# terraform.tfvars の設定と一致するか確認
+cat terraform.tfvars | grep container_image
+```
+
+**期待される結果**: `container_image_name` と `container_image_tag` が ACR のリポジトリ名・タグと一致していること。
+
+#### ステップ 2: Key Vault シークレットの確認
+
+```bash
+# Key Vault にシークレットが存在するか確認
+KV_NAME=$(terraform output -raw key_vault_name)
+az keyvault secret list --vault-name $KV_NAME -o table
+```
+
+**期待される結果**: 以下の 3 つのシークレットが存在すること。
+
+- `SLACK-BOT-TOKEN`
+- `SLACK-APP-TOKEN`
+- `BOT-USER-ID`
+
+#### ステップ 3: 失敗した Container App の削除
+
+```bash
+# タイムアウトで失敗した Container App を削除
+az containerapp delete \
+  --name slackbot-aca \
+  --resource-group rg-slackbot-aca \
+  --yes
+```
+
+#### ステップ 4: 修正後の再実行
+
+```bash
+# イメージまたはシークレットを修正した後、再度 apply
+terraform apply
+```
+
+> **💡 ヒント**: 本プロジェクトでは、User Assigned Managed Identity を事前に作成し、Role Assignment を完了させてから Container App を作成する 3 フェーズアーキテクチャを採用しています。これにより、ロール権限不足によるタイムアウトは発生しません。
+
+---
+
+### 4. State のロック
+
+**エラーメッセージ**:
 
 ```
 Error: Error acquiring the state lock
 ```
 
-**解決方法**:
+**原因と解決方法**:
+
+他の Terraform プロセスが実行中か、異常終了時にロックが残っている可能性があります。
 
 ```bash
 # ロックを強制解除（他の操作が実行中でないことを確認してから）
 terraform force-unlock <LOCK_ID>
 ```
 
-#### 4. **Provider のバージョンエラー**
+---
+
+### 5. Provider のバージョンエラー
+
+**解決方法**:
 
 ```bash
 # Provider のアップグレード
 terraform init -upgrade
 ```
+
+---
 
 ### デバッグのヒント
 
@@ -552,6 +691,59 @@ terraform state show <RESOURCE_ADDRESS>
 # State の同期
 terraform refresh
 ```
+
+---
+
+## CI/CD 時のトラブルシューティング
+
+### 1. GitHub Actions での認証エラー
+
+**エラーメッセージ**:
+
+```
+Error: AADSTS700016: Application with identifier 'xxx' was not found
+```
+
+**原因と解決方法**:
+
+- GitHub Secrets の `AZURE_CLIENT_ID`、`AZURE_TENANT_ID`、`AZURE_SUBSCRIPTION_ID` が正しく設定されているか確認
+- Service Principal または Managed Identity の設定を確認
+- 詳細は [setup-cicd-app.md](setup-cicd-app.md) を参照
+
+---
+
+### 2. Terraform Plan の差分が消えない
+
+**原因**:
+
+- ローカルで手動変更したリソースが State と不一致
+- terraform.tfvars の設定が GitHub Secrets と不一致
+
+**解決方法**:
+
+```bash
+# ローカルで State を最新化
+terraform refresh
+
+# 差分を確認
+terraform plan
+
+# 必要に応じて手動変更をコードに反映、または State を修正
+```
+
+---
+
+### 3. ワークフローが実行されない
+
+**原因**:
+
+- `terraform/**` 配下のファイルが変更されていない
+- Workflow ファイル自体に構文エラーがある
+
+**解決方法**:
+
+- GitHub Actions タブでエラーログを確認
+- 手動実行 (workflow_dispatch) でテスト実行
 
 ---
 
