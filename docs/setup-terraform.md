@@ -231,26 +231,59 @@ az storage container create \
 
 ### 2. tfvars ファイルの作成
 
-環境変数用のファイルを作成します。
+すべてのリソース名・ロケーション・イメージ設定は `terraform.tfvars` で上書きできます。まず例ファイルをコピーし、必要に応じて編集します。
 
 ```bash
 cd terraform/environments/production
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-`terraform.tfvars` を編集して、一意の名前を設定します：
+`terraform.tfvars` では以下の変数を設定可能です。
+
+| 区分         | 変数名                            | 必須        | 説明                                           |
+| ------------ | --------------------------------- | ----------- | ---------------------------------------------- |
+| 基本         | `resource_group_name`             | 任意        | RG 名 (既定: `rg-slackbot-aca`)                |
+| 基本         | `location`                        | 任意        | リージョン (既定: `japaneast`)                 |
+| ネットワーク | `vnet_name`                       | 任意        | VNet 名                                        |
+| ネットワーク | `aca_subnet_name`                 | 任意        | ACA サブネット名                               |
+| ネットワーク | `database_subnet_name`            | 任意        | DB サブネット名                                |
+| ログ         | `log_analytics_workspace_name`    | 任意        | Log Analytics 名                               |
+| ACR          | `acr_name`                        | 必須        | ACR 名 (グローバル一意)                        |
+| Key Vault    | `key_vault_name`                  | 必須        | Key Vault 名 (グローバル一意)                  |
+| ID           | `managed_identity_name`           | 任意        | User Assigned Managed Identity 名              |
+| ACA 環境     | `container_apps_environment_name` | 任意        | Container Apps Environment 名                  |
+| ACA アプリ   | `container_app_name`              | 任意        | Container App 名                               |
+| イメージ     | `container_image_name`            | 必須 (実質) | ACR リポジトリ名 (フェーズ 2 で push する名前) |
+| イメージ     | `container_image_tag`             | 必須 (実質) | イメージタグ (フェーズ 2 で push するタグ)     |
+| コンテナ     | `container_name`                  | 任意        | Container App 内コンテナ名                     |
+
+最小構成として必須なのは `acr_name`, `key_vault_name`, `container_image_name`, `container_image_tag` の 4 つです。他はデフォルト値で問題なければ編集不要です。
+
+例（初期構築推奨例）：
 
 ```hcl
-# グローバルで一意な名前に変更してください (必須)
+# 必須（グローバルで一意な名前に変更）
 acr_name       = "slackbotaca<YOUR_UNIQUE_ID>"
 key_vault_name = "kv-slackbot-<YOUR_UNIQUE_ID>"
 
-# イメージ名とタグ (フェーズ2でプッシュ時に使用)
+# イメージ設定（フェーズ2で利用）
 container_image_name = "slackbot-aca"
 container_image_tag  = "1"
+
+# 任意でカスタマイズ可能（必要なら上書き）
+# resource_group_name             = "rg-slackbot-aca"
+# location                        = "japaneast"
+# vnet_name                       = "slackbot-aca-vnet"
+# aca_subnet_name                 = "aca-subnet"
+# database_subnet_name            = "database-subnet"
+# log_analytics_workspace_name    = "ws-slackapp-aca"
+# managed_identity_name           = "slackbot-aca-identity"
+# container_apps_environment_name = "slackbot-aca-env"
+# container_app_name              = "slackbot-aca"
+# container_name                  = "slackbot-aca"
 ```
 
-> **💡 重要**: `container_image_name` と `container_image_tag` は、後のフェーズ 2 で ACR にプッシュするイメージ名・タグと一致させる必要があります。
+> **💡 重要**: `container_image_name` と `container_image_tag` はフェーズ 2 で ACR に push するイメージ名・タグと完全一致させてください。不一致の場合、Container App の初回リビジョンがタイムアウトします。
 
 ### 3. provider.tf の作成と Backend 設定
 

@@ -10,9 +10,9 @@ database_subnet_name = "database-subnet"
 # Log Analytics
 log_analytics_workspace_name = "ws-slackapp-aca"
 
-# ACR名とKey Vault名（グローバルで一意である必要があります）
-acr_name       = "slackbotaca123"  # 変更必須: グローバルで一意な名前
-key_vault_name = "kv-slackbot-123" # 変更必須: グローバルで一意な名前（3-24文字）
+# ACR名とKey Vault名（変更必須：グローバルで一意の必要あり）
+acr_name       = "slackbotacaxxx"
+key_vault_name = "kv-slackbot-xxx"
 
 # Managed Identity
 managed_identity_name = "slackbot-aca-identity"
